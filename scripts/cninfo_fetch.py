@@ -185,6 +185,13 @@ def fmt_time(ts):
     except Exception:
         return ""
 
+def beijing_today():
+    """返回北京时间当天日期。GitHub Actions 服务器为 UTC，需显式 +8 小时。
+    之前多处用 datetime.date.today() 跟随服务器本地时区，UTC 环境下
+    北京凌晨运行时会把「今天」算成前一天，导致增量窗口错一天。
+    """
+    return (datetime.datetime.utcnow() + datetime.timedelta(hours=8)).date()
+
 # ============ 记忆 / 增量 ============
 def load_state():
     for p in (DRIVE_STATE, STATE_PATH):
@@ -225,7 +232,7 @@ def resolve_window(force_start=None, force_end=None, full_rescan=False):
     此时应该只拉取今天的新公告（从当前时间往前推几小时），
     避免重复拉取全天数据。
     """
-    today = datetime.date.today()
+    today = beijing_today()
     end = force_end or today.strftime("%Y-%m-%d")
     if force_start:
         return force_start, end
@@ -258,7 +265,7 @@ def window_from_preset(preset_name):
     days = RANGE_PRESETS.get(preset_name)
     if days is None:
         return None, None
-    today = datetime.date.today()
+    today = beijing_today()
     end = today
     start = today - datetime.timedelta(days=days - 1)
     return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
@@ -322,7 +329,7 @@ def archive_current(filtered, end_date):
 
 def build_universe(days=15, end_date=None):
     """合并近 days 天各次运行归档的筛选结果（去重），用于「近半月相关股票」展示。"""
-    end = end_date or datetime.date.today().strftime("%Y-%m-%d")
+    end = end_date or beijing_today().strftime("%Y-%m-%d")
     try:
         cutoff = (datetime.date.fromisoformat(end) - datetime.timedelta(days=days - 1)).strftime("%Y-%m-%d")
     except Exception:
