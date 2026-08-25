@@ -28,6 +28,14 @@ on:
           - '1w'
           - '2w'
           - '1m'
+      start_date:
+        description: 'Backfill start date (YYYY-MM-DD). Leave empty for normal incremental fetch.'
+        required: false
+        default: ''
+      end_date:
+        description: 'Backfill end date (YYYY-MM-DD). Leave empty for today.'
+        required: false
+        default: ''
 
 # Permissions: need to write gh-pages branch
 permissions:
@@ -43,7 +51,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
 
     steps:
       - name: Checkout repository
@@ -89,19 +97,25 @@ jobs:
           # Set env var to adapt to GitHub Actions
           export GITHUB_ACTIONS=1
 
+          START="${{ github.event.inputs.start_date }}"
+          END="${{ github.event.inputs.end_date }}"
+
           # Decide run mode based on input params
-          if [ "${{ github.event.inputs.full_rescan }}" = "true" ]; then
+          if [ -n "$START" ]; then
+            # Backfill mode: fetch an explicit date range (both dates required by script)
+            if [ -z "$END" ]; then
+              END=$(date +%F)
+            fi
+            echo "Backfill mode: $START ~ $END"
+            python scripts/cninfo_fetch.py "$START" "$END"
+          elif [ "${{ github.event.inputs.full_rescan }}" = "true" ]; then
             echo "Running full rescan..."
             python scripts/cninfo_fetch.py --full
-          elif [ -n "${{ github.event.inputs.preset }}" ]; then
-            echo "Running with preset: ${{ github.event.inputs.preset }}"
-            # Preset ranges require source support; use incremental mode for now
-            python scripts/cninfo_fetch.py
           else
             echo "Running incremental fetch..."
             python scripts/cninfo_fetch.py
           fi
-        timeout-minutes: 15
+        timeout-minutes: 85
 
       - name: Ensure ECharts library
         run: |
@@ -145,8 +159,11 @@ jobs:
           cp cninfo_announce_state.json _site/data_archive/ 2>/dev/null || true
           cp market_cap_cache.json _site/data_archive/ 2>/dev/null || true
 
-          # Create index page (if dashboard.html does not exist)
-          if [ ! -f _site/index.html ]; then
+          # Create index page: always overwrite with the latest dashboard.html
+          # so the root URL (homepage) reflects current data (fixes stale homepage).
+          if [ -f _site/dashboard.html ]; then
+            cp _site/dashboard.html _site/index.html
+          elif [ ! -f _site/index.html ]; then
             cp _site/dashboard.html _site/index.html 2>/dev/null || true
           fi
 
