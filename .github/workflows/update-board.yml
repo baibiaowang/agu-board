@@ -1,0 +1,176 @@
+name: Update A-Share Announcement Board
+
+on:
+  # Runs at 09:00, 15:30, 21:00 Beijing time (01:00, 07:30, 13:00 UTC)
+  schedule:
+    - cron: '0 1 * * *'    # UTC 01:00 = Beijing 09:00
+    - cron: '30 7 * * *'   # UTC 07:30 = Beijing 15:30
+    - cron: '0 13 * * *'   # UTC 13:00 = Beijing 21:00
+  # Manual trigger
+  workflow_dispatch:
+    inputs:
+      full_rescan:
+        description: 'Full rescan (reset state and re-fetch all)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      preset:
+        description: 'Time range preset'
+        required: false
+        default: ''
+        type: choice
+        options:
+          - ''
+          - '3d'
+          - '1w'
+          - '2w'
+          - '1m'
+
+# Permissions: need to write gh-pages branch
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+# Concurrency control: avoid multiple runs modifying data simultaneously
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history to preserve archive data
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Restore data archive
+        run: |
+          # Restore historical archive data from gh-pages branch (if exists)
+          git fetch origin gh-pages:gh-pages-temp || true
+          if git show-ref --quiet refs/remotes/origin/gh-pages-temp; then
+            echo "Restoring archive from gh-pages..."
+            git checkout gh-pages-temp -- data_archive/ 2>/dev/null || true
+            # Put archive data back into the right place
+            mkdir -p cninfo_announce_archive
+            cp -r data_archive/* cninfo_announce_archive/ 2>/dev/null || true
+          fi
+
+          # Restore state file
+          if [ -f data_archive/cninfo_announce_state.json ]; then
+            cp data_archive/cninfo_announce_state.json . 2>/dev/null || true
+          fi
+
+          # Restore market cap cache
+          if [ -f data_archive/market_cap_cache.json ]; then
+            cp data_archive/market_cap_cache.json . 2>/dev/null || true
+          fi
+
+      - name: Run data fetch
+        run: |
+          # Set env var to adapt to GitHub Actions
+          export GITHUB_ACTIONS=1
+
+          # Decide run mode based on input params
+          if [ "${{ github.event.inputs.full_rescan }}" = "true" ]; then
+            echo "Running full rescan..."
+            python scripts/cninfo_fetch.py --full
+          elif [ -n "${{ github.event.inputs.preset }}" ]; then
+            echo "Running with preset: ${{ github.event.inputs.preset }}"
+            # Preset ranges require source support; use incremental mode for now
+            python scripts/cninfo_fetch.py
+          else
+            echo "Running incremental fetch..."
+            python scripts/cninfo_fetch.py
+          fi
+        timeout-minutes: 15
+
+      - name: Ensure ECharts library
+        run: |
+          # echarts.min.js is large (~1MB); download from CDN as fallback if not committed,
+          # so the dashboard K-line chart can render (gen_dashboard.py validates this file).
+          mkdir -p reports/dashboard/lib
+          if [ ! -s reports/dashboard/lib/echarts.min.js ]; then
+            echo "echarts.min.js missing, downloading ECharts 5.6.0 from CDN ..."
+            curl -fsSL -o reports/dashboard/lib/echarts.min.js \
+              https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js
+          fi
+
+      - name: Generate dashboard
+        run: |
+          export GITHUB_ACTIONS=1
+          python scripts/gen_dashboard.py
+        timeout-minutes: 10
+
+      - name: Prepare deployment
+        run: |
+          # Create deployment directory
+          mkdir -p _site
+
+          # Copy dashboard files
+          cp -r reports/dashboard/* _site/ 2>/dev/null || true
+
+          # Ensure data_list.js and data_kline.js exist
+          if [ ! -f _site/data_list.js ]; then
+            echo "window.ANNO_LIST = [];" > _site/data_list.js
+          fi
+          if [ ! -f _site/data_kline.js ]; then
+            echo "window.ANNO_KLINE = {};" > _site/data_kline.js
+          fi
+
+          # Copy echarts
+          cp reports/dashboard/lib/echarts.min.js _site/lib/ 2>/dev/null || true
+
+          # Create data archive dir (for restore on next run)
+          mkdir -p _site/data_archive
+          cp -r cninfo_announce_archive/* _site/data_archive/ 2>/dev/null || true
+          cp cninfo_announce_state.json _site/data_archive/ 2>/dev/null || true
+          cp market_cap_cache.json _site/data_archive/ 2>/dev/null || true
+
+          # Create index page (if dashboard.html does not exist)
+          if [ ! -f _site/index.html ]; then
+            cp _site/dashboard.html _site/index.html 2>/dev/null || true
+          fi
+
+          # Add CNAME (uncomment and modify for custom domain)
+          # echo "your-domain.com" > _site/CNAME
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        if: github.ref == 'refs/heads/main'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: gh-pages
+          force_orphan: false
+          keep_files: true  # Keep historical files (e.g. data archive)
+          commit_message: "Update board ${{ github.run_id }}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: debug-output
+          path: |
+            cninfo_announce_*.json
+            reports/
+          retention-days: 7
+
