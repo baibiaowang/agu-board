@@ -94,7 +94,11 @@ def fetch_range(column, se_date, workers=4):
     """拉取单个日期区间的全部页（用于单日等较小区间）。
     首页先拿 total，其余页并发拉取；巨潮无视 pageSize 参数（固定每页 30 条），
     串行翻页 + sleep 才是慢的根因，改为并发大幅提速。
-    workers 控制在 4 左右，过高会触发巨潮对 IP 的限流封禁（403）。"""
+    workers 控制在 4 左右，过高会触发巨潮对 IP 的限流封禁（403）。
+
+    关键修复：并发抓取中失败的页不能静默丢弃（之前 return [] 导致整页 30 条
+    公告凭空消失），改为收集失败页码，最后串行逐页重试补抓，确保完整。
+    """
     all_items = []
     first = fetch_page(column, se_date, 1)
     total = first.get("totalAnnouncement", 0)
@@ -103,17 +107,38 @@ def fetch_range(column, se_date, workers=4):
     if total_pages <= 1:
         return all_items, total
 
+    failed_pages = []
+
     def work(p):
         try:
             res = fetch_page(column, se_date, p)
-            return res.get("announcements") or []
+            items = res.get("announcements") or []
+            if not items:
+                failed_pages.append(p)
+            return items
         except Exception:
-            return []   # 单页失败静默跳过（fetch_page 内部已有 https/http 双 scheme 重试）
+            failed_pages.append(p)
+            return []   # 失败页记入 failed_pages，稍后串行重试
 
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futs = [ex.submit(work, p) for p in range(2, total_pages + 1)]
         for f in as_completed(futs):
             all_items.extend(f.result())
+
+    # 串行重试失败页（并发 403 限流时，串行 + 退避通常能成功）
+    if failed_pages:
+        print(f"    [重试] {len(failed_pages)} 个失败页，串行补抓...")
+        still_failed = []
+        for p in sorted(failed_pages):
+            try:
+                res = fetch_page(column, se_date, p)
+                items = res.get("announcements") or []
+                all_items.extend(items)
+                time.sleep(0.4)
+            except Exception:
+                still_failed.append(p)
+        if still_failed:
+            print(f"    [警告] 仍有 {len(still_failed)} 页抓取失败: {still_failed[:10]}")
     return all_items, total
 
 def fetch_all(column, se_date):
@@ -152,7 +177,11 @@ def fetch_all(column, se_date):
 
 def fmt_time(ts):
     try:
-        return datetime.datetime.fromtimestamp(ts/1000).strftime("%Y-%m-%d %H:%M")
+        # 巨潮时间戳为 UTC 毫秒；显式转北京时间(UTC+8)。
+        # 之前用 fromtimestamp() 跟随服务器本地时区，GitHub Actions 是 UTC，
+        # 导致公告时间整体偏早 8 小时。
+        dt = datetime.datetime.utcfromtimestamp(ts / 1000) + datetime.timedelta(hours=8)
+        return dt.strftime("%Y-%m-%d %H:%M")
     except Exception:
         return ""
 
@@ -502,3 +531,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
