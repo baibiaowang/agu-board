@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A股主板公告看板(2026-08-06 ~ 08-09)</title>
+<style>
+  :root {
+    --bg: #f5f6fa;
+    --card: #ffffff;
+    --border: #e6e8ef;
+    --text: #1f2430;
+    --text2: #6b7280;
+    --red: #e6343a;
+    --green: #0aa858;
+    --accent: #2563eb;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background:var(--bg); color:var(--text); }
+  .header {
+    background:linear-gradient(135deg,#1e3a8a,#2563eb 60%,#3b82f6);
+    color:#fff; padding:20px 28px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px;
+  }
+  .header h1 { font-size:22px; font-weight:700; }
+  .header .sub { font-size:13px; opacity:.85; margin-top:4px; }
+  .stats { display:flex; gap:16px; }
+  .stat { background:rgba(255,255,255,.14); border-radius:10px; padding:8px 16px; text-align:center; min-width:76px; }
+  .stat .n { font-size:20px; font-weight:700; }
+  .stat .l { font-size:11px; opacity:.8; }
+  .toolbar { padding:14px 24px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; background:var(--card); border-bottom:1px solid var(--border); }
+  .search { flex:1; min-width:200px; max-width:380px; position:relative; }
+  .search input {
+    width:100%; padding:9px 14px 9px 36px; border:1px solid var(--border); border-radius:10px;
+    font-size:14px; outline:none; background:var(--bg); transition:.15s;
+  }
+  .search input:focus { border-color:var(--accent); background:#fff; box-shadow:0 0 0 3px rgba(37,99,235,.1); }
+  .search svg { position:absolute; left:11px; top:9px; width:17px; height:17px; stroke:var(--text2); fill:none; stroke-width:2; }
+  .cats { display:flex; gap:8px; flex-wrap:wrap; }
+  .cat {
+    padding:7px 14px; border-radius:999px; border:1px solid var(--border); background:#fff; font-size:13px;
+    cursor:pointer; transition:.15s; color:var(--text2); user-select:none;
+  }
+  .cat:hover { border-color:var(--accent); color:var(--accent); }
+  .cat.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .boards { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .board {
+    padding:6px 13px; border-radius:999px; border:1px solid var(--border); background:#fff; font-size:12.5px;
+    cursor:pointer; transition:.15s; color:var(--text2); user-select:none;
+  }
+  .board:hover { border-color:var(--accent); color:var(--accent); }
+  .board.active { background:#1e3a8a; color:#fff; border-color:#1e3a8a; }
+  .sttoggle { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text2); cursor:pointer; user-select:none; margin-left:6px; }
+  .sttoggle input { width:15px; height:15px; cursor:pointer; accent-color:var(--accent); }
+  .datefilter { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .dflabel { font-size:13px; font-weight:600; color:var(--text); }
+  .dranges { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .dbtn {
+    padding:6px 13px; border-radius:999px; border:1px solid var(--border); background:#fff; font-size:12.5px;
+    cursor:pointer; transition:.15s; color:var(--text2); user-select:none;
+  }
+  .dbtn:hover { border-color:var(--accent); color:var(--accent); }
+  .dbtn.active { background:#1e3a8a; color:#fff; border-color:#1e3a8a; }
+  .filters { margin-left:auto; display:flex; gap:10px; align-items:stretch; flex-wrap:nowrap; }
+  .board-select, .range-select { padding:6px 10px; border-radius:8px; border:1px solid var(--border); background:#fff; font-size:13px; color:var(--text); outline:none; cursor:pointer; }
+  .fblock { display:flex; align-items:center; gap:8px; padding:7px 12px; border-radius:10px; border:1px solid var(--border); }
+  .fblock-cat { background:#eef2ff; }
+  .fblock-board { background:#f0fdf4; }
+  .fblock-date { background:#fff7ed; }
+  .flabel { font-size:12px; font-weight:700; color:var(--text2); white-space:nowrap; }
+  .main { display:flex; gap:16px; padding:16px 24px; height:calc(100vh - 60px); min-height:480px; }
+  .list { width:400px; min-width:340px; overflow-y:auto; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:10px; }
+  .list::-webkit-scrollbar { width:8px; }
+  .list::-webkit-scrollbar-thumb { background:#d1d5db; border-radius:4px; }
+  .group-title { font-size:12px; color:var(--text2); font-weight:600; padding:10px 8px 6px; position:sticky; top:0; background:var(--card); z-index:2; }
+  .stock {
+    padding:10px 12px; border-radius:10px; cursor:pointer; transition:.12s; border:1px solid transparent; margin-bottom:2px;
+  }
+  .stock:hover { background:#f0f4ff; }
+  .stock.active { background:#e8efff; border-color:#bfd4fe; }
+  .stock .row1 { display:flex; align-items:center; gap:8px; }
+  .stock .nm { font-size:14px; font-weight:600; }
+  .stock .cd { font-size:12px; color:var(--text2); }
+  .stock .mv { font-size:12px; color:#8b93a7; font-weight:500; }
+  .stock .chg { margin-left:auto; font-size:13px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .chgs { display:flex; gap:6px; margin-top:5px; flex-wrap:wrap; }
+  .chip {
+    font-size:11px; padding:2px 7px; border-radius:5px; font-weight:600; font-variant-numeric:tabular-nums;
+    background:#f3f4f6; color:var(--text2); white-space:nowrap;
+  }
+  .chip.up { background:#fdecec; color:var(--red); }
+  .chip.down { background:#e6f6ee; color:var(--green); }
+  .stock .badge {
+    font-size:10px; padding:2px 8px; border-radius:999px; background:#eef2ff; color:#4f46e5; font-weight:500; white-space:nowrap;
+  }
+  .stock .rsn { font-size:12px; color:var(--text2); margin-top:4px; line-height:1.5; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .up { color:var(--red); } .down { color:var(--green); }
+  .panel { flex:1; background:var(--card); border:1px solid var(--border); border-radius:14px; display:flex; flex-direction:column; min-width:0; }
+  .panel-head { padding:10px 20px 4px; border-bottom:1px solid var(--border); }
+  .panel-head .t1 { display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; }
+  .panel-head .t1 .nm { font-size:20px; font-weight:700; }
+  .panel-head .t1 .cd { font-size:13px; color:var(--text2); }
+  .panel-head .t1 .px { font-size:24px; font-weight:700; font-variant-numeric:tabular-nums; }
+  .panel-head .t1 .mv { font-size:13px; color:#6b7280; font-weight:600; background:#f3f4f6; padding:2px 8px; border-radius:6px; }
+  .panel-head .rsn { font-size:13px; color:var(--text2); margin-top:6px; line-height:1.6; }
+  #p_anns { margin-top:6px; display:block; max-height:56px; overflow-y:auto; padding:6px 10px; background:#fffaf0; border:1px solid #fde8c8; border-radius:8px; }
+  #p_anns .ann-item { display:flex; gap:10px; align-items:baseline; padding:2px 0; }
+  #p_anns .ann-date { font-size:11px; color:#b45309; font-weight:600; white-space:nowrap; background:#fef3c7; padding:1px 7px; border-radius:4px; }
+  #p_anns .ann-title { font-size:12px; color:#78350f; line-height:1.5; }
+  #chart { flex:1; min-height:380px; padding:6px; }
+  .empty { display:flex; align-items:center; justify-content:center; height:100%; color:var(--text2); font-size:15px; }
+  .hint { font-size:12px; color:var(--text2); padding:2px 20px 10px; }
+  @media (max-width: 900px) {
+    .main { flex-direction:column; height:auto; }
+    .list { width:100%; max-height:340px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar" style="flex-wrap:nowrap;">
+  <div class="search">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    <input id="search" type="text" placeholder="搜索代码 / 名称 / 事件关键词...">
+  </div>
+  <div class="filters">
+    <div class="fblock fblock-cat"><span class="flabel">类别</span><div class="cats" id="cats"></div></div>
+    <div class="fblock fblock-board"><span class="flabel">板块</span><select id="boards" class="board-select"></select><label class="sttoggle"><input type="checkbox" id="stswitch"> 含ST</label></div>
+    <div class="fblock fblock-date"><span class="flabel">时间</span><select id="dranges" class="range-select"></select></div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="list" id="list"></div>
+  <div class="panel">
+    <div class="panel-head" id="phead">
+      <div class="t1"><span class="nm" id="p_nm">-</span><span class="cd" id="p_cd">-</span><span class="mv" id="p_mv"></span><span class="px" id="p_px">-</span><span class="px" id="p_chg"></span></div>
+      <div class="rsn" id="p_rsn">点击左侧股票查看详情与K线</div>
+      <div id="p_anns" style="display:none;"></div>
+    </div>
+    <div id="chart"><div class="empty">👈 从左侧选择一只股票</div></div>
+    <div class="hint">列表指标:<b>今</b>=当日涨跌 · <b>公告</b>=公告发布后累计涨跌 · <b>5日</b>=近5日累计涨跌(红涨绿跌)|K线:近120交易日,橙色📌=公告发布日,悬停查看公告</div>
+  </div>
+</div>
+
+<script src="lib/echarts.min.js"></script>
+<script src="data_list.js"></script>
+<script src="data_kline.js" defer></script>
+<script>
+const RED = '#e6343a', GREEN = '#0aa858';
+let all = (window.ANNO_LIST || []);
+function getKline(code){const m=window.ANNO_KLINE||{};return m[code]||[];}
+let activeCat = '并购重组', activeCode = null;
+let activeBoard = '主板';  // 默认只显示主板
+let showST = false;        // 默认排除 ST
+let activeRange = '3d';    // 公告时间档位:''全部 | 3d | 7d | 15d | 30d | 30d+
+let activeDataSource = 'all'; // 数据来源:'all'全部历史 | 'current'仅当期
+let chart = null;
+
+// 数据日期范围计算
+const ALL_DATES = (() => {
+  const ds = (window.ANNO_LIST || []).flatMap(s => (s.announcements || []).map(a => a.date)).filter(Boolean).sort();
+  return ds;
+})();
+const MAX_DATE = ALL_DATES.length ? ALL_DATES[ALL_DATES.length - 1] : '';
+const MIN_DATE = ALL_DATES.length ? ALL_DATES[0] : '';
+
+// 更新头部日期显示
+(function updateHeader() {
+  const sub = document.getElementById('header_sub');
+  if (sub && MIN_DATE && MAX_DATE) {
+    sub.textContent = `${MIN_DATE} ~ ${MAX_DATE} · 巨潮资讯全量公告 · 累积显示近90天数据 · 默认主板(不含ST)`;
+  }
+})();
+function pad2(n) { return String(n).padStart(2, '0'); }
+function cutoff(n) {
+  const d = new Date(MAX_DATE + 'T00:00:00');
+  d.setDate(d.getDate() - n);
+  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+}
+function renderRanges() {
+  const ranges = [['', '全部时间'], ['3d', '近3天'], ['7d', '一周'], ['15d', '半月'], ['30d', '一个月'], ['30d+', '一个月之前']];
+  const el = document.getElementById('dranges');
+  el.innerHTML = ranges.map(([k, l]) => `<option value="${k}"${activeRange === k ? ' selected' : ''}>${l}</option>`).join('');
+}
+
+const CAT_COLORS = {
+  '并购重组': '#2563eb', '出售/转让': '#7c3aed', '人事变动': '#d97706',
+  '质押/解押': '#0891b2', '业绩快报': '#059669', '立案/诉讼': '#dc2626',
+  '分红/增持/回购': '#ca8a04'
+};
+
+function lastChg(s) { return s.chg ?? 0; }
+function chg5(s) { return s.chg5 ?? 0; }
+function chgAnn(s) { return s.chg_ann ?? null; }
+function fmt(v) { return (v===null||v===undefined||isNaN(v)) ? '-' : (v>=0?'+':'') + v.toFixed(2) + '%'; }
+function fmtMv(mv){ if(!mv||mv<=0) return ''; if(mv>=1e12) return (mv/1e12).toFixed(2)+'万亿'; return (mv/1e8).toFixed(1)+'亿'; }
+function cls(v) { return v===null||v===undefined||isNaN(v) ? '' : (v >= 0 ? 'up' : 'down'); }
+
+function renderCats() {
+  const cats = ['全部', ...new Set(all.map(s => s.category))];
+  const el = document.getElementById('cats');
+  el.innerHTML = cats.map(c => `<div class="cat${c===activeCat?' active':''}" data-cat="${c}">${c}</div>`).join('');
+  el.querySelectorAll('.cat').forEach(x => x.onclick = () => { activeCat = x.dataset.cat; renderCats(); renderList(); });
+}
+
+function renderBoards() {
+  const boards = ['主板', ...new Set(all.filter(s => s.board && s.board !== '主板').map(s => s.board))];
+  const el = document.getElementById('boards');
+  el.innerHTML = boards.map(b => `<option value="${b}"${b===activeBoard?' selected':''}>${b}</option>`).join('');
+}
+
+function filtered() {
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  return all.filter(s => {
+    if (activeCat !== '全部' && s.category !== activeCat) return false;
+    if (activeBoard === '主板') {
+      if ((s.board || '主板') !== '主板') return false;
+      if (!showST && s.is_st) return false;
+    } else {
+      if ((s.board || '主板') !== activeBoard) return false;
+    }
+    // 公告时间档位筛选:基于实际公告日期,而非最新日期
+    if (activeRange) {
+      const anns = (s.announcements || []).filter(a => a.date);
+      if (activeRange === '30d+') {
+        // 一个月之前:所有公告都在30天前
+        if (!anns.some(a => a.date < cutoff(30))) return false;
+      } else {
+        const days = { '3d': 3, '7d': 7, '15d': 15, '30d': 30 }[activeRange];
+        // 该股票有公告落在选定时间范围内
+        if (!anns.some(a => a.date >= cutoff(days))) return false;
+      }
+    }
+    if (!q) return true;
+    return s.code.includes(q) || s.name.toLowerCase().includes(q) || s.reason.toLowerCase().includes(q) ||
+           s.category.toLowerCase().includes(q);
+  });
+}
+
+function renderList() {
+  const list = filtered();
+  const groups = {};
+  list.forEach(s => { (groups[s.category] = groups[s.category] || []).push(s); });
+  const el = document.getElementById('list');
+  if (!list.length) { el.innerHTML = '<div style="text-align:center;color:#6b7280;padding:40px 0;">无匹配股票</div>'; return; }
+  let html = '';
+  for (const [cat, items] of Object.entries(groups)) {
+    html += `<div class="group-title" style="color:${CAT_COLORS[cat]||'#6b7280'}">${cat}(${items.length})</div>`;
+    items.forEach(s => {
+      const t = lastChg(s), a = chgAnn(s), c5 = chg5(s);
+      const boardTag = s.board && s.board !== '主板' ? `<span class="badge" style="background:#fff7ed;color:#c2410c;">${s.board}</span>` : '';
+      const stTag = s.is_st ? '<span class="badge" style="background:#fef2f2;color:#dc2626;">ST</span>' : '';
+      html += `<div class="stock${activeCode===s.code?' active':''}" data-code="${s.code}">
+        <div class="row1">
+          <span class="nm">${s.name}</span><span class="cd">${s.code}</span><span class="mv">${fmtMv(s.market_cap)}</span>
+          ${boardTag}${stTag}
+          <span class="badge">${s.category}</span>
+        </div>
+        <div class="chgs">
+          <span class="chip ${cls(t)}">今 ${fmt(t)}</span>
+          <span class="chip ${cls(a)}">公告 ${fmt(a)}</span>
+          <span class="chip ${cls(c5)}">5日 ${fmt(c5)}</span>
+        </div>
+        <div class="rsn">${s.reason}</div>
+      </div>`;
+    });
+  }
+  el.innerHTML = html;
+  el.querySelectorAll('.stock').forEach(x => x.onclick = () => select(x.dataset.code));
+  // 自动选中第一只
+  if (!activeCode || !all.some(s => s.code === activeCode)) {
+    select(list[0].code);
+  }
+}
+
+function select(code) {
+  const s = all.find(x => x.code === code);
+  if (!s) return;
+  activeCode = code;
+  // 只更新高亮，不重建整个列表（全量重建极慢）
+  document.querySelectorAll('.stock').forEach(x => x.classList.toggle('active', x.dataset.code === code));
+  const k = getKline(s.code);
+  const last = k.length ? k[k.length-1] : null;
+  const chg = s.chg ?? 0;
+  const pxEl = document.getElementById('p_px');
+  document.getElementById('p_nm').textContent = s.name;
+  document.getElementById('p_cd').textContent = s.code;
+  document.getElementById('p_mv').textContent = fmtMv(s.market_cap);
+  pxEl.textContent = last ? last[2].toFixed(2) : '—';
+  pxEl.style.color = chg >= 0 ? RED : GREEN;
+  const c = document.getElementById('p_chg');
+  c.textContent = fmt(chg);
+  c.style.color = chg >= 0 ? RED : GREEN;
+  document.getElementById('p_rsn').textContent = '入选原因：' + s.reason;
+  // 公告事件时间线 - 显示所有历史公告（最多显示20条，避免过长）
+  const anns = (s.announcements || []).filter(a => a.date && a.title);
+  const tl = document.getElementById('p_anns');
+  if (anns.length) {
+    const displayAnns = anns.slice(-20); // 显示最近20条
+    const moreCount = anns.length - displayAnns.length;
+    let html = displayAnns.map(a => `<div class="ann-item"><span class="ann-date">${a.date}</span><span class="ann-title">${a.title}</span></div>`).join('');
+    if (moreCount > 0) {
+      html += `<div class="ann-item" style="color:#9ca3af;font-size:11px;">... 还有 ${moreCount} 条更早的公告</div>`;
+    }
+    tl.innerHTML = html;
+    tl.style.display = 'block';
+  } else {
+    tl.style.display = 'none';
+  }
+  drawChart(s);
+}
+
+function drawChart(s) {
+  const el = document.getElementById('chart');
+  // 关键修复:先销毁旧实例再重建,否则重复 init 同一容器会导致图表不渲染
+  if (chart) { chart.dispose(); chart = null; }
+  el.innerHTML = '';
+  chart = echarts.init(el);
+  const k = getKline(s.code);
+  if (!k.length) { el.innerHTML = '<div class="empty">K线数据加载中…</div>'; return; }
+  const dates = k.map(x => x[0]);
+  const ohlc = k.map(x => [x[1], x[2], x[4], x[3]]); // open, close, low, high
+  const vols = k.map(x => x[5]);
+  const closes = k.map(x => x[2]);
+
+  // 公告事件 → 定位到K线索引（公告日无K线时往后找最近的有K线的日期）
+  const anns = (s.announcements || []).filter(a => a.date && a.title);
+  const annPoints = [];
+  for (const a of anns) {
+    let i = dates.indexOf(a.date);
+    let anchorDate = a.date;
+    let shifted = false;
+    if (i < 0) {
+      for (let j = 0; j < dates.length; j++) {
+        if (dates[j] >= a.date) { i = j; anchorDate = dates[j]; shifted = (dates[j] !== a.date); break; }
+      }
+      if (i < 0) continue;
+    }
+    annPoints.push({ i, anchorDate, shifted, ...a });
+  }
+
+  function ma(n) {
+    return closes.map((_, i) => {
+      if (i < n-1) return '-';
+      let sum = 0; for (let j=i-n+1; j<=i; j++) sum += closes[j];
+      return +(sum/n).toFixed(2);
+    });
+  }
+
+  const option = {
+    animation: false,
+    axisPointer: { link: [{xAxisIndex: 'all'}] },
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'cross' },
+      backgroundColor: 'rgba(255,255,255,.97)', borderColor: '#e5e7eb', textStyle: { color: '#1f2430', fontSize: 12 },
+      formatter: function(ps) {
+        const i = ps[0].dataIndex;
+        const o=ohlc[i][0], c=ohlc[i][1], l=ohlc[i][2], h=ohlc[i][3];
+        const pct = i>0 && closes[i-1] ? ((c-closes[i-1])/closes[i-1]*100).toFixed(2) : '0.00';
+        let html = `<b>${dates[i]}</b><br/>开 ${o.toFixed(2)} 收 <b>${c.toFixed(2)}</b>(${pct}%)<br/>高 ${h.toFixed(2)} 低 ${l.toFixed(2)}<br/>成交量 ${(vols[i]/10000).toFixed(2)}万手`;
+        const dayAnns = annPoints.filter(p => p.i === i);
+        if (dayAnns.length) {
+          html += '<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #d1d5db;color:#b45309;max-width:340px;">';
+          html += '<b style="font-size:12px;">📌 当日公告</b>';
+          dayAnns.forEach(p => {
+            html += `<div style="font-size:12px;line-height:1.5;margin-top:3px;">${p.title}</div>`;
+            html += `<div style="font-size:11px;color:#92400e;margin-top:1px;">公告日期：${p.date}${p.shifted ? '（停牌/无K线，标注于 ' + p.anchorDate + '）' : ''}</div>`;
+          });
+          html += '</div>';
+        }
+        return html;
+      }
+    },
+    grid: [
+      { left: 64, right: 16, top: 20, height: '62%' },
+      { left: 64, right: 16, top: '80%', height: '14%' }
+    ],
+    xAxis: [
+      { type: 'category', data: dates, boundaryGap: true, axisLine: { lineStyle: { color: '#9ca3af' } }, axisLabel: { color: '#6b7280', fontSize: 11 }, axisTick: { show: false } },
+      { type: 'category', gridIndex: 1, data: dates, axisLabel: { show: false }, axisTick: { show: false }, axisLine: { lineStyle: { color: '#d1d5db' } } }
+    ],
+    yAxis: [
+      { scale: true, splitLine: { lineStyle: { color: '#f0f1f5' } }, axisLabel: { color: '#6b7280', fontSize: 11 } },
+      { gridIndex: 1, splitNumber: 2, axisLabel: { color: '#9ca3af', fontSize: 10, formatter: v => (v/100000).toFixed(1) }, splitLine: { show: false } }
+    ],
+    dataZoom: [
+      { type: 'inside', xAxisIndex: [0,1], start: 55, end: 100 },
+      { type: 'slider', xAxisIndex: [0,1], bottom: 4, height: 18, borderColor: '#e5e7eb', fillerColor: 'rgba(37,99,235,.08)', handleSize: '90%', textStyle: { fontSize: 10, color: '#6b7280' } }
+    ],
+    series: [
+      {
+        name: 'K线', type: 'candlestick', data: ohlc,
+        itemStyle: { color: RED, color0: GREEN, borderColor: RED, borderColor0: GREEN },
+        markPoint: {
+          symbol: 'pin', symbolSize: 30, zlevel: 3,
+          label: { show: true, fontSize: 10, color: '#fff', formatter: (p) => p.data.shifted ? '停牌' : '公告' },
+          itemStyle: { color: '#f59e0b' },
+          emphasis: { label: { show: true, fontSize: 11 } },
+          data: annPoints.map(p => ({
+            coord: [p.anchorDate, ohlc[p.i][3]],
+            name: p.title,
+            shifted: p.shifted,
+            date: p.date,
+            anchorDate: p.anchorDate,
+          })),
+        },
+        markLine: {
+          symbol: 'none', silent: true,
+          label: { show: false },
+          lineStyle: { color: 'rgba(245,158,11,.55)', type: 'dashed', width: 1 },
+          data: annPoints.map(p => ({ xAxis: p.anchorDate })),
+        },
+      },
+      { name: 'MA5', type: 'line', data: ma(5), smooth: true, showSymbol: false, lineStyle: { width: 1, color: '#f59e0b' } },
+      { name: 'MA10', type: 'line', data: ma(10), smooth: true, showSymbol: false, lineStyle: { width: 1, color: '#3b82f6' } },
+      { name: 'MA20', type: 'line', data: ma(20), smooth: true, showSymbol: false, lineStyle: { width: 1, color: '#a855f7' } },
+      {
+        name: '成交量', type: 'bar', xAxisIndex: 1, yAxisIndex: 1, data: vols,
+        itemStyle: { color: (p) => p.dataIndex>0 && closes[p.dataIndex]>=closes[p.dataIndex-1] ? 'rgba(230,52,58,.55)' : 'rgba(10,168,88,.55)' },
+      }
+    ],
+  };
+  chart.setOption(option);
+  window.addEventListener('resize', () => chart && chart.resize());
+}
+
+// init
+renderCats();
+renderBoards();
+renderRanges();
+document.getElementById('search').addEventListener('input', renderList);
+document.getElementById('stswitch').addEventListener('change', function() { showST = this.checked; renderList(); });
+document.getElementById('boards').addEventListener('change', function() { activeBoard = this.value; renderList(); });
+document.getElementById('dranges').addEventListener('change', function() { activeRange = this.value; renderList(); });
+
+renderList();
+window.addEventListener('load', function(){ if(activeCode){ select(activeCode); } });
+
+// 支持 ?stock= 参数跳转：从报告点击股票名跳转到对应K线
+(function(){const p=new URLSearchParams(location.search);const c=p.get('stock');if(c&&all.some(s=>s.code===c)){select(c);}})();
+</script>
+</body>
+</html>
