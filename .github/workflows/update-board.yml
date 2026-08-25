@@ -72,14 +72,19 @@ jobs:
 
       - name: Restore data archive
         run: |
-          # Restore historical archive data from gh-pages branch (if exists)
-          git fetch origin gh-pages:gh-pages-temp || true
-          if git show-ref --quiet refs/remotes/origin/gh-pages-temp; then
-            echo "Restoring archive from gh-pages..."
-            git checkout gh-pages-temp -- data_archive/ 2>/dev/null || true
-            # Put archive data back into the right place
-            mkdir -p cninfo_announce_archive
+          mkdir -p cninfo_announce_archive
+          # Priority 1: data_archive committed on main (from previous Persist step)
+          if [ -d data_archive ] && [ -n "$(ls -A data_archive 2>/dev/null)" ]; then
+            echo "Restoring archive from main data_archive/ ..."
             cp -r data_archive/* cninfo_announce_archive/ 2>/dev/null || true
+          else
+            # Priority 2: fall back to gh-pages (legacy, pre-Persist deployments)
+            echo "main data_archive/ empty, falling back to gh-pages ..."
+            git fetch origin gh-pages:gh-pages-temp || true
+            if git show-ref --quiet refs/remotes/origin/gh-pages-temp; then
+              git checkout gh-pages-temp -- data_archive/ 2>/dev/null || true
+              cp -r data_archive/* cninfo_announce_archive/ 2>/dev/null || true
+            fi
           fi
 
           # Restore state file
@@ -116,6 +121,27 @@ jobs:
             python scripts/cninfo_fetch.py
           fi
         timeout-minutes: 85
+
+      # Persist archive to main IMMEDIATELY after fetch, so fetched data survives
+      # even if dashboard generation or deployment fails later. Uses `git add -f`
+      # because some files (cninfo_announce_state.json, market_cap_cache.json) are
+      # matched by .gitignore patterns.
+      - name: Persist archive to main
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          mkdir -p data_archive
+          cp -r cninfo_announce_archive/* data_archive/ 2>/dev/null || true
+          cp cninfo_announce_state.json data_archive/ 2>/dev/null || true
+          cp market_cap_cache.json data_archive/ 2>/dev/null || true
+          git add -f data_archive/ 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "No archive changes; skip commit."
+          else
+            git commit -m "Persist announcement archive $(date +%F)" || echo "commit failed"
+            git push origin main || echo "push failed (archive still kept in gh-pages deploy below)"
+          fi
 
       - name: Ensure ECharts library
         run: |
