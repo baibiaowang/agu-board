@@ -11,12 +11,18 @@ PyInstaller 打包后 __file__ 会指向临时解压目录(_MEIPASS)，导致脚
     RES  = resource_root()
 """
 import sys
+import os
 from pathlib import Path
 
 
 def is_frozen():
     """是否 PyInstaller 打包运行。"""
     return bool(getattr(sys, "frozen", False))
+
+
+def is_github_actions():
+    """是否在 GitHub Actions 环境中运行。"""
+    return os.environ.get("GITHUB_ACTIONS") == "1" or os.environ.get("CI") == "true"
 
 
 def _project_root():
@@ -26,6 +32,8 @@ def _project_root():
 
 def data_root():
     """可写数据根目录。"""
+    if is_github_actions():
+        return Path(os.environ.get("GITHUB_WORKSPACE", os.getcwd()))
     if is_frozen():
         return Path(sys.executable).resolve().parent
     return _project_root()
@@ -33,6 +41,8 @@ def data_root():
 
 def resource_root():
     """只读资源根目录。"""
+    if is_github_actions():
+        return Path(os.environ.get("GITHUB_WORKSPACE", os.getcwd()))
     if is_frozen():
         return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
     return _project_root()
