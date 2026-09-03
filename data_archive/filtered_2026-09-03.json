@@ -2927,5 +2927,721 @@
     "cats": [
       "分红/增持/回购"
     ]
+  },
+  {
+    "code": "301308",
+    "name": "江波龙",
+    "title": "关于回购公司股份的进展公告",
+    "time": "2026-09-03 19:30",
+    "url": "finalpage/2026-09-03/1225547242.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "301310",
+    "name": "鑫宏业",
+    "title": "无锡鑫宏业线缆科技股份有限公司关于最近五年被证券监管部门和交易所采取监管措施或处罚及整改情况的公告",
+    "time": "2026-09-03 19:08",
+    "url": "finalpage/2026-09-03/1225546897.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "立案/处罚"
+    ]
+  },
+  {
+    "code": "300766",
+    "name": "每日互动",
+    "title": "东方证券股份有限公司关于每日互动股份有限公司2024年度向特定对象发行A股股票之补充尽职调查报告",
+    "time": "2026-09-03 19:08",
+    "url": "finalpage/2026-09-03/1225546816.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "立案/处罚"
+    ]
+  },
+  {
+    "code": "300192",
+    "name": "科德教育",
+    "title": "关于回购公司股份的进展公告",
+    "time": "2026-09-03 19:02",
+    "url": "finalpage/2026-09-03/1225547137.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "301297",
+    "name": "富乐德",
+    "title": "关于董事会完成换届选举及聘任高级管理人员、证券事务代表的公告",
+    "time": "2026-09-03 18:52",
+    "url": "finalpage/2026-09-03/1225547056.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "人事变动"
+    ]
+  },
+  {
+    "code": "300240",
+    "name": "飞力达",
+    "title": "回购报告书",
+    "time": "2026-09-03 18:52",
+    "url": "finalpage/2026-09-03/1225546769.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300240",
+    "name": "飞力达",
+    "title": "关于回购股份的进展公告",
+    "time": "2026-09-03 18:52",
+    "url": "finalpage/2026-09-03/1225546770.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300036",
+    "name": "超图软件",
+    "title": "关于回购公司股份的进展公告",
+    "time": "2026-09-03 18:50",
+    "url": "finalpage/2026-09-03/1225547050.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300637",
+    "name": "扬帆新材",
+    "title": "关于股份回购进展的公告",
+    "time": "2026-09-03 19:04",
+    "url": "finalpage/2026-09-03/1225546486.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300136",
+    "name": "信维通信",
+    "title": "关于公司董事、副总经理辞职的公告",
+    "time": "2026-09-03 19:04",
+    "url": "finalpage/2026-09-03/1225547144.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "人事变动"
+    ]
+  },
+  {
+    "code": "300594",
+    "name": "ST朗进",
+    "title": "山东朗进科技股份有限公司关于公司股票交易被实施其他风险警示相关事项的进展公告",
+    "time": "2026-09-03 17:34",
+    "url": "finalpage/2026-09-03/1225546407.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": true,
+    "cats": [
+      "退市风险"
+    ]
+  },
+  {
+    "code": "301030",
+    "name": "*ST仕净",
+    "title": "关于预重整投资人招募进展暨重新公开招募预重整投资人公告",
+    "time": "2026-09-03 17:26",
+    "url": "finalpage/2026-09-03/1225546215.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": true,
+    "cats": [
+      "破产重整"
+    ]
+  },
+  {
+    "code": "300242",
+    "name": "佳云科技",
+    "title": "关于公司重大诉讼事项的进展公告",
+    "time": "2026-09-03 17:20",
+    "url": "finalpage/2026-09-03/1225546187.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "重大诉讼"
+    ]
+  },
+  {
+    "code": "300825",
+    "name": "阿尔特",
+    "title": "关于公司控股股东部分股份解除质押及质押的公告",
+    "time": "2026-09-03 17:20",
+    "url": "finalpage/2026-09-03/1225546188.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "质押/解押"
+    ]
+  },
+  {
+    "code": "300237",
+    "name": "ST美晨",
+    "title": "关于重大诉讼事项的进展公告",
+    "time": "2026-09-03 17:20",
+    "url": "finalpage/2026-09-03/1225546190.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": true,
+    "cats": [
+      "重大诉讼"
+    ]
+  },
+  {
+    "code": "301108",
+    "name": "洁雅股份",
+    "title": "2026年半年度分红派息实施公告",
+    "time": "2026-09-03 17:14",
+    "url": "finalpage/2026-09-03/1225546171.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300684",
+    "name": "中石科技",
+    "title": "关于回购股份进展的公告",
+    "time": "2026-09-03 17:10",
+    "url": "finalpage/2026-09-03/1225546047.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300232",
+    "name": "洲明科技",
+    "title": "关于回购公司股份的进展公告",
+    "time": "2026-09-03 17:04",
+    "url": "finalpage/2026-09-03/1225545967.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300750",
+    "name": "宁德时代",
+    "title": "关于回购公司A股股份的进展公告",
+    "time": "2026-09-03 17:04",
+    "url": "finalpage/2026-09-03/1225545968.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "920284",
+    "name": "灵鸽科技",
+    "title": "回购进展情况公告",
+    "time": "2026-09-03 00:00",
+    "url": "finalpage/2026-09-03/1225547303.PDF",
+    "pageColumn": "BJS",
+    "board": "北交所",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "301235",
+    "name": "华康洁净",
+    "title": "关于回购公司股份的进展公告",
+    "time": "2026-09-03 16:26",
+    "url": "finalpage/2026-09-03/1225545668.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "301265",
+    "name": "华新科技",
+    "title": "关于回购公司股份的进展公告",
+    "time": "2026-09-03 16:24",
+    "url": "finalpage/2026-09-03/1225545667.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300953",
+    "name": "震裕科技",
+    "title": "关于控股股东、实际控制人部分股份解除质押及质押的公告",
+    "time": "2026-09-03 16:00",
+    "url": "finalpage/2026-09-03/1225545555.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "质押/解押"
+    ]
+  },
+  {
+    "code": "300720",
+    "name": "海川智能",
+    "title": "关于回购公司股份的进展公告",
+    "time": "2026-09-03 16:56",
+    "url": "finalpage/2026-09-03/1225545829.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300857",
+    "name": "协创数据",
+    "title": "关于控股股东部分股份质押的公告",
+    "time": "2026-09-03 16:56",
+    "url": "finalpage/2026-09-03/1225545828.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "质押/解押"
+    ]
+  },
+  {
+    "code": "300086",
+    "name": "康芝药业",
+    "title": "关于公司控股股东部分股份质押的公告",
+    "time": "2026-09-03 16:54",
+    "url": "finalpage/2026-09-03/1225545825.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "质押/解押"
+    ]
+  },
+  {
+    "code": "300860",
+    "name": "锋尚文化",
+    "title": "关于股东协议转让部分股份过户完成的公告",
+    "time": "2026-09-03 16:52",
+    "url": "finalpage/2026-09-03/1225545781.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "出售/转让"
+    ]
+  },
+  {
+    "code": "300091",
+    "name": "*ST金灵",
+    "title": "关于股份回购进展的公告",
+    "time": "2026-09-03 16:52",
+    "url": "finalpage/2026-09-03/1225545777.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": true,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300858",
+    "name": "科拓生物",
+    "title": "关于回购公司股份的进展公告",
+    "time": "2026-09-03 16:44",
+    "url": "finalpage/2026-09-03/1225545766.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300396",
+    "name": "ST迪瑞",
+    "title": "关于公司股票交易被实施其他风险警示暨可能被实施退市风险警示相关事项的进展公告",
+    "time": "2026-09-03 16:44",
+    "url": "finalpage/2026-09-03/1225545765.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": true,
+    "cats": [
+      "退市风险"
+    ]
+  },
+  {
+    "code": "301330",
+    "name": "熵基科技",
+    "title": "关于首次回购公司股份暨回购股份进展的公告",
+    "time": "2026-09-03 16:42",
+    "url": "finalpage/2026-09-03/1225545743.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "000166",
+    "name": "申万宏源",
+    "title": "申万宏源集团股份有限公司2023年面向专业投资者公开发行公司债券（(第二期）（品种二）2026年兑付兑息及摘牌的公告",
+    "time": "2026-09-03 16:40",
+    "url": "finalpage/2026-09-03/1225545737.PDF",
+    "pageColumn": "SZZB",
+    "board": "主板",
+    "is_st": false,
+    "cats": [
+      "退市风险"
+    ]
+  },
+  {
+    "code": "301268",
+    "name": "铭利达",
+    "title": "关于公司董事、财务总监辞职的公告",
+    "time": "2026-09-03 16:40",
+    "url": "finalpage/2026-09-03/1225545717.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "人事变动"
+    ]
+  },
+  {
+    "code": "301038",
+    "name": "深水规院",
+    "title": "关于公司董事长离任的公告",
+    "time": "2026-09-03 16:40",
+    "url": "finalpage/2026-09-03/1225545745.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "人事变动"
+    ]
+  },
+  {
+    "code": "920258",
+    "name": "聚仁新材",
+    "title": "利润分配管理制度",
+    "time": "2026-09-03 00:00",
+    "url": "finalpage/2026-09-03/1225546985.PDF",
+    "pageColumn": "BJS",
+    "board": "北交所",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "920639",
+    "name": "晨光电缆",
+    "title": "关于出售已回购股份的进展公告",
+    "time": "2026-09-03 00:00",
+    "url": "finalpage/2026-09-03/1225546704.PDF",
+    "pageColumn": "BJS",
+    "board": "北交所",
+    "is_st": false,
+    "cats": [
+      "出售/转让",
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "920593",
+    "name": "鼎智科技",
+    "title": "回购进展情况公告",
+    "time": "2026-09-03 00:00",
+    "url": "finalpage/2026-09-03/1225546678.PDF",
+    "pageColumn": "BJS",
+    "board": "北交所",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "920533",
+    "name": "骏创科技",
+    "title": "首次回购股份暨回购进展情况公告",
+    "time": "2026-09-03 00:00",
+    "url": "finalpage/2026-09-03/1225546673.PDF",
+    "pageColumn": "BJS",
+    "board": "北交所",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "920575",
+    "name": "*ST康乐",
+    "title": "关于累计诉讼、仲裁的公告",
+    "time": "2026-09-03 00:00",
+    "url": "finalpage/2026-09-03/1225546502.PDF",
+    "pageColumn": "BJS",
+    "board": "北交所",
+    "is_st": true,
+    "cats": [
+      "重大诉讼"
+    ]
+  },
+  {
+    "code": "920068",
+    "name": "天工股份",
+    "title": "回购进展情况公告",
+    "time": "2026-09-03 00:00",
+    "url": "finalpage/2026-09-03/1225546204.PDF",
+    "pageColumn": "BJS",
+    "board": "北交所",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "920187",
+    "name": "通领科技",
+    "title": "关于控股股东、实际控制人增持公司股份结果公告",
+    "time": "2026-09-03 00:00",
+    "url": "finalpage/2026-09-03/1225545756.PDF",
+    "pageColumn": "BJS",
+    "board": "北交所",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "920187",
+    "name": "通领科技",
+    "title": "北京国枫律师事务所关于上海通领汽车科技股份有限公司实际控制人增持公司股份的法律意见书",
+    "time": "2026-09-03 00:00",
+    "url": "finalpage/2026-09-03/1225545755.PDF",
+    "pageColumn": "BJS",
+    "board": "北交所",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300672",
+    "name": "国科微",
+    "title": "关于股东股份质押的公告",
+    "time": "2026-09-03 18:46",
+    "url": "finalpage/2026-09-03/1225547028.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "质押/解押"
+    ]
+  },
+  {
+    "code": "300624",
+    "name": "万兴科技",
+    "title": "关于回购公司股份的进展公告",
+    "time": "2026-09-03 18:34",
+    "url": "finalpage/2026-09-03/1225546951.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "301199",
+    "name": "迈赫股份",
+    "title": "迈赫机器人自动化股份有限公司回购股份报告书",
+    "time": "2026-09-03 18:34",
+    "url": "finalpage/2026-09-03/1225546954.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "301446",
+    "name": "福事特",
+    "title": "关于回购公司股份的进展公告",
+    "time": "2026-09-03 18:28",
+    "url": "finalpage/2026-09-03/1225546889.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300926",
+    "name": "博俊科技",
+    "title": "关于回购股份事项前十名股东和前十名无限售条件股东持股情况的公告",
+    "time": "2026-09-03 18:26",
+    "url": "finalpage/2026-09-03/1225546879.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "301336",
+    "name": "趣睡科技",
+    "title": "成都趣睡科技股份有限公司关于回购股份事项前十大股东和前十大无限售条件股东持股情况的公告",
+    "time": "2026-09-03 18:24",
+    "url": "finalpage/2026-09-03/1225546802.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "301336",
+    "name": "趣睡科技",
+    "title": "成都趣睡科技股份有限公司回购股份报告书公告",
+    "time": "2026-09-03 18:24",
+    "url": "finalpage/2026-09-03/1225546801.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "301382",
+    "name": "蜂助手",
+    "title": "蜂助手股份有限公司关于持股5%以上股东部分股份质押的公告",
+    "time": "2026-09-03 18:22",
+    "url": "finalpage/2026-09-03/1225546803.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "质押/解押"
+    ]
+  },
+  {
+    "code": "300997",
+    "name": "欢乐家",
+    "title": "关于股东部分股份解除质押及股份质押的公告",
+    "time": "2026-09-03 18:22",
+    "url": "finalpage/2026-09-03/1225546800.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "质押/解押"
+    ]
+  },
+  {
+    "code": "300290",
+    "name": "ST荣科",
+    "title": "关于公司收到《民事起诉书》及部分银行账户被冻结的公告",
+    "time": "2026-09-03 18:16",
+    "url": "finalpage/2026-09-03/1225546774.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": true,
+    "cats": [
+      "重大诉讼"
+    ]
+  },
+  {
+    "code": "300758",
+    "name": "七彩化学",
+    "title": "关于公司控股股东及一致行动人部分股份质押延期购回的公告",
+    "time": "2026-09-03 18:14",
+    "url": "finalpage/2026-09-03/1225546768.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "质押/解押"
+    ]
+  },
+  {
+    "code": "300550",
+    "name": "和仁科技",
+    "title": "关于日常经营合同涉及诉讼的进展暨累计诉讼事项的公告",
+    "time": "2026-09-03 18:12",
+    "url": "finalpage/2026-09-03/1225545827.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "重大诉讼"
+    ]
+  },
+  {
+    "code": "300385",
+    "name": "ST雪浪",
+    "title": "关于公司重大诉讼的进展公告",
+    "time": "2026-09-03 17:56",
+    "url": "finalpage/2026-09-03/1225546596.PDF",
+    "pageColumn": "SZCY",
+    "board": "创业板",
+    "is_st": true,
+    "cats": [
+      "重大诉讼"
+    ]
   }
 ]
