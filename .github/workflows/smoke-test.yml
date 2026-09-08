@@ -72,10 +72,11 @@ jobs:
 
       - name: Verify outputs
         if: steps.seed.outputs.has_seed == 'true'
+        working-directory: scripts
         run: |
-          test -s reports/dashboard/data_list.js
-          test -s reports/dashboard/dashboard.html
-          test -s board.db
+          test -s ../reports/dashboard/data_list.js
+          test -s ../reports/dashboard/dashboard.html
+          test -s ../board.db
           python - <<'PY'
           from board_db import connect, integrity_check, seed_stats
           con = connect()
