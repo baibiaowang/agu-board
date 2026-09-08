@@ -1,14 +1,16 @@
-"""自动抽取重点公告 PDF 原文。
+"""自动抽取重点公告 PDF/正文原文。
 
-数据源已切换到东方财富。优先使用公告记录中的 pdf_url，
-并以 art_code 构造 PDF 地址；不再依赖巨潮 static.cninfo.com.cn。
+优先下载东方财富 PDF；PDF 不可用时，使用东方财富公告正文接口作为兜底。
+这样公告详情页或 PDF CDN 临时异常时，报告仍可生成。
 """
 import hashlib
+import html
 import json
 import re
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -25,6 +27,7 @@ BASE = data_root()
 PDF_DIR = BASE / "announce_pdf"
 TXT_DIR = BASE / "announce_txt"
 FILTERED = BASE / "cninfo_announce_filtered.json"
+ARCHIVE_DIR = BASE / "cninfo_announce_archive"
 
 PRIORITY = {
     "并购重组": 15,
@@ -40,16 +43,35 @@ PRIORITY = {
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0 Safari/537.36",
     "Referer": "https://data.eastmoney.com/notices/",
-    "Accept": "application/pdf,application/octet-stream,text/html,*/*",
+    "Accept": "application/json,application/pdf,application/octet-stream,text/html,*/*",
 }
 PDF_BASE = "https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf"
-MAX_DOWNLOAD_RETRIES = 4
+CONTENT_API = "https://np-cnotice-stock.eastmoney.com/api/content/ann"
+MAX_RETRIES = 4
+
+
+def _safe_name(name):
+    return re.sub(r"[\\/:*?\"<>|]", "", str(name or "")).strip()[:80] or "公告"
+
+
+def _load_json_file(path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 def load():
-    if not FILTERED.exists():
+    """当前筛选不存在时，从最新归档恢复，避免临时网络失败导致本地整条链路断掉。"""
+    source = FILTERED
+    if not source.exists() or source.stat().st_size == 0:
+        archives = sorted(ARCHIVE_DIR.glob("filtered_*.json"), reverse=True) if ARCHIVE_DIR.exists() else []
+        if archives:
+            source = archives[0]
+            print(f"[EXTRACT] 当前筛选缓存不存在，使用最新归档：{source.name}")
+    if not source.exists():
         return []
-    fl = json.loads(FILTERED.read_text(encoding="utf-8"))
+    fl = _load_json_file(source) or []
     seen, out = set(), []
     for x in fl:
         k = (x.get("code"), x.get("title"), x.get("time"))
@@ -77,16 +99,14 @@ def select(items):
     return result
 
 
-def _safe_name(name):
-    return re.sub(r"[\\/:*?\"<>|]", "", str(name or "")).strip()[:80] or "公告"
-
-
 def _article_id(x):
     art = str(x.get("art_code") or x.get("_art_code") or "").strip()
     if art:
         return art
     url = str(x.get("pdf_url") or x.get("url") or "").strip()
-    return hashlib.sha1(url.encode("utf-8")).hexdigest()[:20]
+    return hashlib.sha1(url.encode("utf-8")).hexdigest()[:20] if url else hashlib.sha1(
+        f"{x.get('code','')}|{x.get('title','')}|{x.get('time','')}".encode("utf-8")
+    ).hexdigest()[:20]
 
 
 def _pdf_url(x):
@@ -99,7 +119,7 @@ def _pdf_url(x):
 
 def _download(url, path):
     last_err = None
-    for attempt in range(MAX_DOWNLOAD_RETRIES):
+    for attempt in range(MAX_RETRIES):
         try:
             req = urllib.request.Request(url, headers=HEADERS)
             with urllib.request.urlopen(req, timeout=30) as r:
@@ -111,9 +131,42 @@ def _download(url, path):
             return len(data)
         except Exception as e:
             last_err = e
-            if attempt + 1 < MAX_DOWNLOAD_RETRIES:
-                time.sleep(min(8, 1.0 * (2 ** attempt)))
+            if attempt + 1 < MAX_RETRIES:
+                time.sleep(min(8, 2 ** attempt))
     raise RuntimeError(f"PDF下载失败: {last_err}") from last_err
+
+
+def _content_text(x):
+    art = str(x.get("art_code") or x.get("_art_code") or "").strip()
+    if not art:
+        return ""
+    params = urllib.parse.urlencode({"art_code": art, "client_source": "web", "page_index": "1"})
+    last_err = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            req = urllib.request.Request(CONTENT_API + "?" + params, headers=HEADERS)
+            with urllib.request.urlopen(req, timeout=25) as r:
+                obj = json.loads(r.read().decode(r.headers.get_content_charset() or "utf-8", errors="replace"))
+            data = obj.get("data") or {}
+            content = str(data.get("notice_content") or "")
+            title = str(data.get("notice_title") or x.get("title") or "")
+            if not content:
+                raise ValueError("东方财富正文接口没有 notice_content")
+            # 正文通常为 HTML；转成纯文本供现有规则总结器使用。
+            text = re.sub(r"<script[\\s\\S]*?</script>", " ", content, flags=re.I)
+            text = re.sub(r"<style[\\s\\S]*?</style>", " ", text, flags=re.I)
+            text = re.sub(r"<br\\s*/?>", "\n", text, flags=re.I)
+            text = re.sub(r"</(?:p|div|tr|li|h[1-6])>", "\n", text, flags=re.I)
+            text = re.sub(r"<[^>]+>", " ", text)
+            text = html.unescape(text)
+            text = re.sub(r"[ \t\r\f\v]+", " ", text)
+            text = re.sub(r"\n{3,}", "\n\n", text).strip()
+            return (title + "\n" + text).strip()
+        except Exception as e:
+            last_err = e
+            if attempt + 1 < MAX_RETRIES:
+                time.sleep(min(8, 2 ** attempt))
+    raise RuntimeError(f"东方财富正文接口失败: {last_err}") from last_err
 
 
 def _extract_text(pdf_path, txt_path):
@@ -133,27 +186,28 @@ def process_one(x):
     name = _safe_name(x.get("name"))
     if not code:
         return "[SKIP] 无股票代码"
-    url = _pdf_url(x)
-    if not url:
-        return f"[FAIL] {code} {name}: 东方财富公告没有 art_code/pdf_url"
     aid = _article_id(x)
     pdf_path = PDF_DIR / f"{code}_{aid}.pdf"
     txt_path = TXT_DIR / f"{code}_{aid}.txt"
     try:
         if txt_path.exists() and txt_path.stat().st_size > 200:
             return f"[CACHE] {code} {name} ({aid})"
-        if not pdf_path.exists() or pdf_path.stat().st_size < 100:
-            size = _download(url, pdf_path)
-            print(f"[PDF] {code} {name}: downloaded {size} bytes", flush=True)
-        chars, pages = _extract_text(pdf_path, txt_path)
-        return f"[OK] {code} {name} ({aid}) pages={pages} text={chars}"
-    except Exception as e:
-        for p in (pdf_path, txt_path):
+        pdf_url = _pdf_url(x)
+        if pdf_url:
             try:
-                if p.exists() and p.stat().st_size < 200:
-                    p.unlink()
-            except Exception:
-                pass
+                if not pdf_path.exists() or pdf_path.stat().st_size < 100:
+                    size = _download(pdf_url, pdf_path)
+                    print(f"[PDF] {code} {name}: downloaded {size} bytes", flush=True)
+                chars, pages = _extract_text(pdf_path, txt_path)
+                return f"[OK-PDF] {code} {name} ({aid}) pages={pages} text={chars}"
+            except Exception as pdf_err:
+                print(f"[PDF-FALLBACK] {code} {name}: {pdf_err}", flush=True)
+        text = _content_text(x)
+        if text:
+            txt_path.write_text(text, encoding="utf-8")
+            return f"[OK-TEXT] {code} {name} ({aid}) text={len(text)}"
+        raise RuntimeError("PDF和正文接口均未返回有效内容")
+    except Exception as e:
         return f"[FAIL] {code} {name} ({aid}): {e}"
 
 
@@ -165,17 +219,17 @@ def main():
         print("[EXTRACT] 没有可处理的重点公告")
         return
     picks = select(items)
-    print(f"[EXTRACT] 自动选定 {len(picks)} 条重点公告下载东方财富 PDF")
+    print(f"[EXTRACT] 自动选定 {len(picks)} 条重点公告")
     ok = cache = fail = 0
     with ThreadPoolExecutor(max_workers=4) as ex:
         futures = [ex.submit(process_one, x) for x in picks]
         for f in as_completed(futures):
             msg = f.result()
             print(msg, flush=True)
-            if msg.startswith("[OK]"): ok += 1
+            if msg.startswith("[OK-"): ok += 1
             elif msg.startswith("[CACHE]"): cache += 1
             elif msg.startswith("[FAIL]"): fail += 1
-    print(f"[EXTRACT] 完成：成功 {ok}，缓存 {cache}，失败 {fail}；文本目录 {TXT_DIR}", flush=True)
+    print(f"[EXTRACT] 完成：有效 {ok}，缓存 {cache}，失败 {fail}；文本目录 {TXT_DIR}", flush=True)
 
 
 if __name__ == "__main__":
