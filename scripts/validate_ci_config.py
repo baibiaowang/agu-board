@@ -68,7 +68,7 @@ def main() -> None:
     require(smoke, "sqlite_concurrency_smoke.py", "SQLite cross-thread regression test")
 
     require(db_backend, "check_same_thread=False", "SQLite cross-thread connection mode")
-    require(db_runner, "thread-affinity check is disabled", "SQLite concurrency guard documentation")
+    require(db_runner, "check_same_thread=False", "incremental runner uses cross-thread-safe SQLite mode")
 
     for path in (production, manual, smoke):
         content = read(path)
