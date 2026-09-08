@@ -41,10 +41,20 @@ def main() -> None:
         gen_dashboard.main()
         return
 
-    # gen_dashboard 使用线程并发请求 K 线/市值；sqlite3.Connection 默认禁止跨线程。
-    # 这里启用跨线程访问并用显式锁保护 SQLite 操作。网络请求保持在锁外，
-    # 因而不会把 HTTP 并发退化成串行。
+    # gen_dashboard 使用线程并发请求 K 线/市值。
+    # SQLite 连接由主线程创建时默认禁止跨线程使用；这里显式关闭该限制，
+    # 再用 RLock 串行保护所有 DB 操作。网络请求始终在锁外执行，因此不会
+    # 把 HTTP 并发退化成串行。
+    con = connect()
+    con.close()
+    # 重新打开为跨线程安全模式，避免共享连接触发 sqlite3 的线程归属异常。
+    import sqlite3
+    con = sqlite3.connect(ROOT / "board.db", timeout=30, check_same_thread=False)
+    con.execute("PRAGMA busy_timeout=30000")
+    con.execute("PRAGMA journal_mode=WAL")
+
     db_lock = threading.RLock()
+    counter_lock = threading.Lock()
 
     try:
         with db_lock:
@@ -69,6 +79,10 @@ def main() -> None:
         target_day = last_trading_day()
         counters = {"kline_cache": 0, "kline_network": 0, "kline_network_new": 0, "kline_write": 0, "mv_cache": 0, "mv_network": 0}
 
+        def add_counter(name: str, value: int = 1) -> None:
+            with counter_lock:
+                counters[name] += value
+
         def persist_kline(code: str, payload: dict) -> int:
             from board_db import upsert_kline_payload
             with db_lock:
@@ -80,15 +94,16 @@ def main() -> None:
             with db_lock:
                 latest = latest_kline_date(con, code)
                 if latest and latest >= target_day:
-                    counters["kline_cache"] += 1
+                    add_counter("kline_cache")
                     return kline_payload(con, code, lmt)
-                counters["kline_network"] += 1
+                add_counter("kline_network")
                 if not latest:
-                    counters["kline_network_new"] += 1
+                    add_counter("kline_network_new")
 
             payload = original_fetch_kline(code, lmt)
             try:
-                counters["kline_write"] += persist_kline(code, payload)
+                written = persist_kline(code, payload)
+                add_counter("kline_write", written)
             except Exception as exc:
                 print(f"  [DB] K线写入失败 {code}: {exc}", flush=True)
             return payload
@@ -97,9 +112,9 @@ def main() -> None:
             with db_lock:
                 value = market_cap(con, code)
                 if value > 0:
-                    counters["mv_cache"] += 1
+                    add_counter("mv_cache")
                     return value
-                counters["mv_network"] += 1
+                add_counter("mv_network")
 
             value = original_fetch_market_cap(code)
             if value > 0:
