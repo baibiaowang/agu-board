@@ -1,9 +1,11 @@
 """Incremental dashboard runner backed by the supplied SQLite history database.
 
 It reuses stored K-lines and market values. Network requests happen only for
-stocks whose cached K-lines are missing or stale, and new K-lines are persisted.
-When REQUIRE_SQLITE=1, absence of the historical seed is a fast, explicit
-failure rather than silently falling back to the old network-heavy generator.
+stocks whose cached K-lines are missing or sufficiently old, while recent
+stale caches (for example suspended stocks) are reused instead of being
+re-requested on every run. When REQUIRE_SQLITE=1, absence of the historical
+seed is a fast, explicit failure rather than silently falling back to the old
+network-heavy generator.
 """
 from __future__ import annotations
 
@@ -26,6 +28,19 @@ def last_trading_day() -> str:
     while d.weekday() >= 5:
         d -= dt.timedelta(days=1)
     return d.strftime("%Y-%m-%d")
+
+
+def _date_cutoff(days: int) -> str:
+    """Return a Beijing-calendar cutoff date used for K-line refresh decisions."""
+    d = dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date() - dt.timedelta(days=max(0, days))
+    return d.strftime("%Y-%m-%d")
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(0, int(os.environ.get(name, str(default))))
+    except (TypeError, ValueError):
+        return default
 
 
 def main() -> None:
@@ -68,7 +83,19 @@ def main() -> None:
         original_fetch_kline = gen_dashboard.fetch_kline
         original_fetch_market_cap = gen_dashboard.fetch_market_cap
         target_day = last_trading_day()
-        counters = {"kline_cache": 0, "kline_network": 0, "kline_network_new": 0, "kline_write": 0, "mv_cache": 0, "mv_network": 0}
+        # 默认允许最近 3 个自然日的缓存直接复用。这样停牌、周末、临时缺行情的股票
+        # 不会在每次运行中反复发起 HTTP 请求。长期未更新的数据仍会进入补齐流程。
+        kline_reuse_days = _env_int("KLINE_REUSE_STALE_DAYS", 3)
+        reuse_cutoff = _date_cutoff(kline_reuse_days)
+        counters = {
+            "kline_cache": 0,
+            "kline_stale_reuse": 0,
+            "kline_network": 0,
+            "kline_network_new": 0,
+            "kline_write": 0,
+            "mv_cache": 0,
+            "mv_network": 0,
+        }
 
         def add_counter(name: str, value: int = 1) -> None:
             with counter_lock:
@@ -86,6 +113,10 @@ def main() -> None:
                 latest = latest_kline_date(con, code)
                 if latest and latest >= target_day:
                     add_counter("kline_cache")
+                    return kline_payload(con, code, lmt)
+                if latest and latest >= reuse_cutoff:
+                    # 数据只比目标日旧几天：对停牌/数据源延迟的股票直接复用。
+                    add_counter("kline_stale_reuse")
                     return kline_payload(con, code, lmt)
                 add_counter("kline_network")
                 if not latest:
@@ -129,8 +160,10 @@ def main() -> None:
             con.commit()
         print(
             "[DB] 看板增量统计："
-            f" K线缓存命中={counters['kline_cache']}, 网络更新={counters['kline_network']}"
-            f"（其中新股票={counters['kline_network_new']}）, K线写入={counters['kline_write']};"
+            f" K线当天缓存命中={counters['kline_cache']}, "
+            f"近期缓存复用={counters['kline_stale_reuse']}, "
+            f"网络更新={counters['kline_network']}（其中新股票={counters['kline_network_new']}）, "
+            f"K线写入={counters['kline_write']};"
             f" 市值缓存命中={counters['mv_cache']}, 市值网络请求={counters['mv_network']}"
         )
         if gen_dashboard.is_github_actions():
