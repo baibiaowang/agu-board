@@ -12,6 +12,8 @@ REQUIRED = [
     ROOT / "scripts" / "eastmoney_fetch.py",
     ROOT / "scripts" / "cninfo_fetch.py",
     ROOT / "scripts" / "gen_dashboard.py",
+    ROOT / "scripts" / "gen_dashboard_incremental.py",
+    ROOT / "scripts" / "board_db.py",
     ROOT / "mainboard_tool" / "extract_auto.py",
     ROOT / "mainboard_tool" / "rule_summarize.py",
     ROOT / "mainboard_tool" / "run_full.py",
@@ -35,11 +37,15 @@ def check_imports():
     import extract_auto
     import rule_summarize
     import run_full
+    import board_db
+    import gen_dashboard_incremental
     assert callable(eastmoney_fetch.run_fetch)
     assert hasattr(eastmoney_fetch, "RANGE_PRESETS")
     assert callable(extract_auto.main)
     assert callable(rule_summarize.main)
     assert callable(run_full.run)
+    assert callable(board_db.connect)
+    assert callable(gen_dashboard_incremental.main)
 
 
 def check_local_data():
@@ -60,12 +66,30 @@ def check_local_data():
     print(f"[CHECK] 当前公告缓存 {len(data)} 条，结构正常")
 
 
+def check_database():
+    db = ROOT / "board.db"
+    if not db.exists():
+        print("[CHECK] 未安装历史 board.db，等待一次性导入")
+        return
+    from board_db import connect, integrity_check, seed_stats
+    con = connect()
+    try:
+        integrity_check(con)
+        stats = seed_stats(con)
+        if stats["announcements"] <= 0 or stats["klines"] <= 0:
+            raise RuntimeError("board.db 已存在但历史公告/K线为空")
+        print(f"[CHECK] SQLite 正常：公告 {stats['announcements']:,}，K线 {stats['klines']:,}，股票 {stats['stocks']:,}")
+    finally:
+        con.close()
+
+
 def main():
     print("=== agu-board self check ===")
     check_files(); print("[OK] 关键文件")
     check_compile(); print("[OK] Python语法编译")
     check_imports(); print("[OK] 模块导入")
     check_local_data()
+    check_database()
     print("[OK] 自检完成（未执行外网请求）")
 
 
