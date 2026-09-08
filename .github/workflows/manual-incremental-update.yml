@@ -1,0 +1,194 @@
+name: Manual Incremental Announcement Update
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+env:
+  PYTHONUNBUFFERED: '1'
+
+concurrency:
+  group: announcement-board
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Manual incremental update
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore persistent data from Pages
+        shell: bash
+        run: |
+          set -u
+          rm -rf .ghpages_state
+          mkdir -p .ghpages_state cninfo_announce_archive
+          if git fetch --depth=1 origin gh-pages:gh-pages-cache 2>/dev/null; then
+            git archive gh-pages-cache data_archive 2>/dev/null | tar -x -C .ghpages_state || true
+          fi
+          if [ -d .ghpages_state/data_archive ]; then
+            cp -r .ghpages_state/data_archive/* cninfo_announce_archive/ 2>/dev/null || true
+            cp .ghpages_state/data_archive/cninfo_announce_state.json . 2>/dev/null || true
+            cp .ghpages_state/data_archive/market_cap_cache.json . 2>/dev/null || true
+            cp .ghpages_state/data_archive/data_list.js reports/dashboard/data_list.js 2>/dev/null || true
+            cp .ghpages_state/data_archive/data_kline.js reports/dashboard/data_kline.js 2>/dev/null || true
+          fi
+          if [ ! -s cninfo_announce_filtered.json ]; then
+            LATEST=$(ls -1t cninfo_announce_archive/filtered_*.json 2>/dev/null | head -n 1 || true)
+            if [ -n "$LATEST" ]; then cp "$LATEST" cninfo_announce_filtered.json; fi
+          fi
+
+      - name: Self check
+        run: python scripts/self_check.py
+
+      - name: Fetch Eastmoney announcements
+        id: fetch
+        shell: bash
+        env:
+          GITHUB_ACTIONS: '1'
+        run: |
+          set +e
+          python scripts/eastmoney_fetch.py
+          STATUS=$?
+          echo "fetch_exit_code=$STATUS" >> "$GITHUB_OUTPUT"
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::warning::东方财富公告增量采集失败；继续使用最近成功归档生成看板。"
+          fi
+          exit 0
+
+      - name: Validate announcement input
+        id: input
+        shell: bash
+        run: |
+          if [ -s cninfo_announce_filtered.json ]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          rows = json.loads(Path('cninfo_announce_filtered.json').read_text(encoding='utf-8'))
+          if not isinstance(rows, list):
+              raise SystemExit('filtered announcement data must be a list')
+          print(f'validated announcement rows: {len(rows)}')
+          PY
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "::error::没有可用公告数据，也没有可恢复的历史归档。"
+            exit 1
+          fi
+
+      - name: Extract Eastmoney announcement content
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 60
+        run: python mainboard_tool/extract_auto.py
+
+      - name: Generate rule report
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 30
+        run: python mainboard_tool/rule_summarize.py
+
+      - name: Generate dashboard data
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 60
+        env:
+          GITHUB_ACTIONS: '1'
+        run: python scripts/gen_dashboard.py
+
+      - name: Normalize dashboard and add manual update button
+        if: always()
+        shell: bash
+        run: |
+          set -u
+          for f in reports/dashboard/dashboard.html reports/dashboard/index.html; do
+            [ -f "$f" ] || continue
+            python - "$f" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text(encoding='utf-8').replace('巨潮资讯', '东方财富')
+          if 'data-manual-update="1"' not in s:
+              link = 'https://github.com/baibiaowang/agu-board/actions/workflows/manual-incremental-update.yml'
+              block = f'''\n<div data-manual-update="1" style="position:fixed;right:20px;top:20px;z-index:99999;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">\n  <a href="{link}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:#1677ff;color:#fff;text-decoration:none;font-size:14px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.18);">\n    ↻ 手动增量采集\n  </a>\n</div>\n'''
+              s = s.replace('</body>', block + '</body>', 1) if '</body>' in s else s + block
+          p.write_text(s, encoding='utf-8')
+          PY
+          done
+
+      - name: Build site and persist runtime state
+        if: always()
+        shell: bash
+        run: |
+          set -u
+          mkdir -p _site _site/data_archive _site/lib
+          cp -r reports/dashboard/* _site/ 2>/dev/null || true
+          [ -f _site/data_list.js ] || echo 'window.ANNO_LIST = [];' > _site/data_list.js
+          [ -f _site/data_kline.js ] || echo 'window.ANNO_KLINE = {};' > _site/data_kline.js
+          if [ -s reports/dashboard/lib/echarts.min.js ]; then
+            cp reports/dashboard/lib/echarts.min.js _site/lib/echarts.min.js
+          elif [ ! -s _site/lib/echarts.min.js ]; then
+            curl -fsSL --retry 3 --retry-delay 2 -o _site/lib/echarts.min.js https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js
+          fi
+          cp -r cninfo_announce_archive/* _site/data_archive/ 2>/dev/null || true
+          cp cninfo_announce_state.json _site/data_archive/ 2>/dev/null || true
+          cp market_cap_cache.json _site/data_archive/ 2>/dev/null || true
+          cp _site/data_list.js _site/data_archive/data_list.js 2>/dev/null || true
+          cp _site/data_kline.js _site/data_archive/data_kline.js 2>/dev/null || true
+          python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+          status = {
+              'generated_at_utc': datetime.now(timezone.utc).isoformat(),
+              'source': 'eastmoney',
+              'mode': 'incremental',
+              'fetch_exit_code': '${{ steps.fetch.outputs.fetch_exit_code }}',
+              'input_valid': '${{ steps.input.outputs.valid }}',
+          }
+          Path('_site/data_archive/pipeline_status.json').write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding='utf-8')
+          PY
+          if [ -f _site/dashboard.html ]; then cp _site/dashboard.html _site/index.html; fi
+
+      - name: Deploy to GitHub Pages
+        if: always() && github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./_site
+          publish_branch: gh-pages
+          force_orphan: false
+          keep_files: false
+          commit_message: 'Manual incremental board update ${{ github.run_id }}'
+
+      - name: Final health check
+        if: always()
+        shell: bash
+        run: |
+          set -u
+          test -s _site/index.html
+          test -s _site/data_list.js
+          test -s _site/data_kline.js
+          test -s _site/lib/echarts.min.js
+          echo 'MANUAL INCREMENTAL UPDATE HEALTH: OK'
+          echo "fetch_exit_code=${{ steps.fetch.outputs.fetch_exit_code }}"
+          echo "input_valid=${{ steps.input.outputs.valid }}"
