@@ -36,9 +36,12 @@ jobs:
         run: |
           if [ -s data_seed/board.db.zst ]; then
             echo '[SMOKE] historical SQLite seed present'
+            echo 'has_seed=true' >> "$GITHUB_OUTPUT"
           else
-            echo '[SMOKE] no historical SQLite seed in main branch; network-compatible mode will be used'
+            echo '[SMOKE] historical SQLite seed absent; full dashboard generation will be skipped to avoid the legacy network-heavy path'
+            echo 'has_seed=false' >> "$GITHUB_OUTPUT"
           fi
+        id: seed
 
       - name: Eastmoney fetch smoke test
         env:
@@ -57,21 +60,33 @@ jobs:
         run: python mainboard_tool/rule_summarize.py "$(TZ=Asia/Shanghai date -d '1 day ago' +%F)" "$(TZ=Asia/Shanghai date +%F)"
 
       - name: Dashboard smoke test (SQLite incremental)
+        if: steps.seed.outputs.has_seed == 'true'
         env:
           GITHUB_ACTIONS: '1'
+          REQUIRE_SQLITE: '1'
         run: python scripts/gen_dashboard_incremental.py
 
+      - name: Dashboard incremental code smoke test without seed
+        if: steps.seed.outputs.has_seed != 'true'
+        run: python -m py_compile scripts/board_db.py scripts/gen_dashboard_incremental.py
+
       - name: Verify outputs
+        if: steps.seed.outputs.has_seed == 'true'
         run: |
           test -s reports/dashboard/data_list.js
           test -s reports/dashboard/dashboard.html
-          if [ -s board.db ]; then
-            python - <<'PY'
-            from scripts.board_db import connect, integrity_check, seed_stats
-            con = connect()
-            integrity_check(con)
-            print('[SMOKE] SQLite integrity OK:', seed_stats(con))
-            con.close()
-            PY
-          fi
+          test -s board.db
+          python - <<'PY'
+          from board_db import connect, integrity_check, seed_stats
+          con = connect()
+          try:
+              integrity_check(con)
+              print('[SMOKE] SQLite integrity OK:', seed_stats(con))
+          finally:
+              con.close()
+          PY
           echo 'END-TO-END SMOKE TEST PASSED'
+
+      - name: Verify code-only outputs without historical seed
+        if: steps.seed.outputs.has_seed != 'true'
+        run: echo 'END-TO-END CODE SMOKE TEST PASSED; historical dashboard smoke awaits data_seed/board.db.zst'
