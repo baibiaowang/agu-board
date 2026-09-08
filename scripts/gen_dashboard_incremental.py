@@ -42,17 +42,8 @@ def main() -> None:
         return
 
     # gen_dashboard 使用线程并发请求 K 线/市值。
-    # SQLite 连接由主线程创建时默认禁止跨线程使用；这里显式关闭该限制，
-    # 再用 RLock 串行保护所有 DB 操作。网络请求始终在锁外执行，因此不会
-    # 把 HTTP 并发退化成串行。
-    con = connect()
-    con.close()
-    # 重新打开为跨线程安全模式，避免共享连接触发 sqlite3 的线程归属异常。
-    import sqlite3
-    con = sqlite3.connect(ROOT / "board.db", timeout=30, check_same_thread=False)
-    con.execute("PRAGMA busy_timeout=30000")
-    con.execute("PRAGMA journal_mode=WAL")
-
+    # SQLite 连接在 board_db.connect() 中显式关闭 thread-affinity 检查，
+    # 这里再用 RLock 串行保护所有 DB 操作；HTTP 请求始终在锁外执行。
     db_lock = threading.RLock()
     counter_lock = threading.Lock()
 
