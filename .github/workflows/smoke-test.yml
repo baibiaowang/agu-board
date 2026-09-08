@@ -25,6 +25,9 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Validate CI configuration
+        run: python scripts/validate_ci_config.py
+
       - name: Static self-check
         run: python scripts/self_check.py
 
