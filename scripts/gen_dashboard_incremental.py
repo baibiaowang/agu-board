@@ -2,12 +2,13 @@
 
 It reuses stored K-lines and market values. Network requests happen only for
 stocks whose cached K-lines are missing or stale, and new K-lines are persisted.
-When the historical seed is not installed yet, it falls back to the original
-generator so CI remains backward compatible during the one-time migration.
+When REQUIRE_SQLITE=1, absence of the historical seed is a fast, explicit
+failure rather than silently falling back to the old network-heavy generator.
 """
 from __future__ import annotations
 
 import datetime as dt
+import os
 import sys
 from pathlib import Path
 
@@ -15,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from board_db import DB_PATH, connect, integrity_check, latest_kline_date, kline_payload, market_cap, persist_to_site, sync_announcement_json, seed_stats
+from board_db import connect, integrity_check, latest_kline_date, kline_payload, market_cap, persist_to_site, sync_announcement_json, seed_stats
 import gen_dashboard
 
 
@@ -27,10 +28,15 @@ def last_trading_day() -> str:
 
 
 def main() -> None:
+    require_sqlite = os.environ.get("REQUIRE_SQLITE", "0") == "1"
     try:
         con = connect()
     except FileNotFoundError:
-        print("[DB] 未安装历史 SQLite 基线，暂时使用原看板生成器。请完成一次性 board.db.zst 导入后切换为纯增量模式。")
+        if require_sqlite:
+            raise RuntimeError(
+                "历史 SQLite 基线未安装：请将 board.db.zst 放入 data_seed/，或完成一次 gh-pages 数据库恢复后再运行生产增量看板。"
+            )
+        print("[DB] 未安装历史 SQLite 基线，暂时使用原看板生成器。")
         gen_dashboard.main()
         return
 
@@ -57,7 +63,9 @@ def main() -> None:
 
         def persist_kline(code: str, payload: dict) -> int:
             from board_db import upsert_kline_payload
-            return upsert_kline_payload(con, code, payload)
+            written = upsert_kline_payload(con, code, payload)
+            con.commit()
+            return written
 
         def cached_fetch_kline(code: str, lmt: int = 120):
             latest = latest_kline_date(con, code)
