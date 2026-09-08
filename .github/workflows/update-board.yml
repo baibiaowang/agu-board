@@ -219,11 +219,13 @@ jobs:
           p = Path(sys.argv[1])
           s = p.read_text(encoding='utf-8')
           s = s.replace('巨潮资讯', '东方财富')
+          s = s.replace('style="flex-wrap:nowrap;"', 'style="flex-wrap:wrap;"')
           marker = 'data-manual-update="1"'
           if marker not in s:
               link = 'https://github.com/baibiaowang/agu-board/actions/workflows/manual-incremental-update.yml'
-              block = f'''\n<div data-manual-update="1" style="position:fixed;right:20px;top:20px;z-index:99999;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">\n  <a href="{link}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:#1677ff;color:#fff;text-decoration:none;font-size:14px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.18);">\n    ↻ 手动增量采集\n  </a>\n</div>\n'''
-              s = s.replace('</body>', block + '</body>', 1) if '</body>' in s else s + block
+              block = f'''\n<div data-manual-update="1" style="padding:8px 24px;display:flex;justify-content:flex-end;align-items:center;background:#ffffff;border-bottom:1px solid #e6e8ef;">\n  <a href="{link}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;background:#1677ff;color:#fff;text-decoration:none;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.10);">\n    ↻ 手动增量采集\n  </a>\n</div>\n'''
+              anchor = '<div class="main">'
+              s = s.replace(anchor, block + anchor, 1) if anchor in s else s.replace('</body>', block + '</body>', 1)
           p.write_text(s, encoding='utf-8')
           PY
           done
