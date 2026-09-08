@@ -61,12 +61,18 @@ def restore_seed_if_needed() -> bool:
 
 
 def connect() -> sqlite3.Connection:
+    """Open the project SQLite database.
+
+    The incremental dashboard deliberately shares one connection between its
+    worker threads and serializes every database operation with an RLock.
+    Therefore the Python thread-affinity check must be disabled here.
+    """
     restore_seed_if_needed()
     if not DB_PATH.exists():
         raise FileNotFoundError(
             f"找不到历史数据库 {DB_PATH}。请把提供的 board.db.zst 放入 data_seed/，或直接放入数据目录。"
         )
-    con = sqlite3.connect(DB_PATH, timeout=30)
+    con = sqlite3.connect(DB_PATH, timeout=30, check_same_thread=False)
     con.execute("PRAGMA journal_mode=WAL")
     con.execute("PRAGMA busy_timeout=30000")
     tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -97,7 +103,6 @@ def kline_payload(con: sqlite3.Connection, code: str, limit: int = 120) -> dict:
     rows.reverse()
     klines = []
     for r in rows:
-        # gen_dashboard 只需要前6列，额外字段也兼容保留。
         date_s, op, close, high, low, volume, chg = r
         vals = [date_s, op, close, high, low, volume]
         klines.append(",".join("" if v is None else str(v) for v in vals))
@@ -127,7 +132,7 @@ def upsert_kline_payload(con: sqlite3.Connection, code: str, payload: dict) -> i
     return added
 
 
-def market_cap(con, code: str) -> float:
+def market_cap(con: sqlite3.Connection, code: str) -> float:
     row = con.execute("SELECT market_value FROM stocks WHERE code=?", (code,)).fetchone()
     try:
         return float(row[0] or 0) if row else 0.0
