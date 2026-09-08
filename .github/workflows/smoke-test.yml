@@ -43,6 +43,10 @@ jobs:
           fi
         id: seed
 
+      - name: SQLite cross-thread regression test
+        if: steps.seed.outputs.has_seed == 'true'
+        run: python scripts/sqlite_concurrency_smoke.py
+
       - name: Eastmoney fetch smoke test
         env:
           GITHUB_ACTIONS: '1'
@@ -68,7 +72,7 @@ jobs:
 
       - name: Dashboard incremental code smoke test without seed
         if: steps.seed.outputs.has_seed != 'true'
-        run: python -m py_compile scripts/board_db.py scripts/gen_dashboard_incremental.py
+        run: python -m py_compile scripts/board_db.py scripts/gen_dashboard_incremental.py scripts/sqlite_concurrency_smoke.py
 
       - name: Verify outputs
         if: steps.seed.outputs.has_seed == 'true'
