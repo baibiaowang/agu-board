@@ -2,9 +2,12 @@ name: Update A-Share Announcement Board
 
 on:
   schedule:
-    - cron: '0 1 * * *'
-    - cron: '30 7 * * *'
-    - cron: '0 13 * * *'
+    - cron: '0 9 * * *'
+      timezone: 'Asia/Shanghai'
+    - cron: '30 15 * * *'
+      timezone: 'Asia/Shanghai'
+    - cron: '0 21 * * *'
+      timezone: 'Asia/Shanghai'
   workflow_dispatch:
     inputs:
       full_rescan:
@@ -33,12 +36,16 @@ permissions:
   pages: write
   id-token: write
 
+env:
+  PYTHONUNBUFFERED: '1'
+
 concurrency:
-  group: ${{ github.workflow }}
+  group: announcement-board
   cancel-in-progress: false
 
 jobs:
   build:
+    name: Build and deploy announcement board
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
@@ -46,56 +53,62 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
+          cache: pip
 
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore persistent data
+      - name: Restore persistent data from Pages
+        shell: bash
         run: |
-          mkdir -p cninfo_announce_archive
-          if [ -d data_archive ] && [ -n "$(ls -A data_archive 2>/dev/null)" ]; then
+          set -u
+          rm -rf .ghpages_state
+          mkdir -p .ghpages_state cninfo_announce_archive
+          if git fetch --depth=1 origin gh-pages:gh-pages-cache 2>/dev/null; then
+            git archive gh-pages-cache data_archive 2>/dev/null | tar -x -C .ghpages_state || true
+          fi
+          if [ -d .ghpages_state/data_archive ]; then
+            cp -r .ghpages_state/data_archive/* cninfo_announce_archive/ 2>/dev/null || true
+            cp .ghpages_state/data_archive/cninfo_announce_state.json . 2>/dev/null || true
+            cp .ghpages_state/data_archive/market_cap_cache.json . 2>/dev/null || true
+            cp .ghpages_state/data_archive/data_list.js reports/dashboard/data_list.js 2>/dev/null || true
+            cp .ghpages_state/data_archive/data_kline.js reports/dashboard/data_kline.js 2>/dev/null || true
+          fi
+          if [ -d data_archive ] && [ -n "$(ls -A data_archive 2>/dev/null || true)" ]; then
             cp -r data_archive/* cninfo_announce_archive/ 2>/dev/null || true
             cp data_archive/cninfo_announce_state.json . 2>/dev/null || true
             cp data_archive/market_cap_cache.json . 2>/dev/null || true
-          else
-            git fetch origin gh-pages:gh-pages-temp || true
-            if git show-ref --quiet refs/remotes/origin/gh-pages-temp; then
-              git checkout gh-pages-temp -- data_archive/ 2>/dev/null || true
-              cp -r data_archive/* cninfo_announce_archive/ 2>/dev/null || true
-              cp data_archive/cninfo_announce_state.json . 2>/dev/null || true
-              cp data_archive/market_cap_cache.json . 2>/dev/null || true
-            fi
           fi
-          # Seed current input from the newest saved archive so transient network
-          # failure does not destroy report/dashboard generation.
           if [ ! -s cninfo_announce_filtered.json ]; then
             LATEST=$(ls -1t cninfo_announce_archive/filtered_*.json 2>/dev/null | head -n 1 || true)
-            if [ -n "$LATEST" ]; then cp "$LATEST" cninfo_announce_filtered.json; echo "Seeded current filtered data from $LATEST"; fi
+            if [ -n "$LATEST" ]; then
+              cp "$LATEST" cninfo_announce_filtered.json
+              echo "Seeded current filtered data from $LATEST"
+            fi
           fi
 
       - name: Self check
         run: python scripts/self_check.py
 
-      - name: Run Eastmoney announcement fetch
+      - name: Fetch Eastmoney announcements
         id: fetch
-        continue-on-error: true
-        timeout-minutes: 60
+        shell: bash
         env:
           GITHUB_ACTIONS: '1'
         run: |
+          set +e
           START="${{ github.event.inputs.start_date }}"
           END="${{ github.event.inputs.end_date }}"
           PRESET="${{ github.event.inputs.preset }}"
           FULL="${{ github.event.inputs.full_rescan }}"
           if [ -n "$START" ]; then
-            [ -n "$END" ] || END=$(date -u +%F)
+            [ -n "$END" ] || END=$(date +%F)
             python scripts/eastmoney_fetch.py "$START" "$END"
           elif [ "$FULL" = "true" ]; then
             python scripts/eastmoney_fetch.py --full
@@ -104,89 +117,108 @@ jobs:
           else
             python scripts/eastmoney_fetch.py
           fi
+          STATUS=$?
+          echo "fetch_exit_code=$STATUS" >> "$GITHUB_OUTPUT"
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::warning::东方财富公告采集失败；继续使用最近成功归档生成看板。"
+          fi
+          exit 0
 
-      - name: Persist announcement data
-        if: always()
+      - name: Validate announcement input
+        id: input
+        shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          mkdir -p data_archive
-          cp -r cninfo_announce_archive/* data_archive/ 2>/dev/null || true
-          cp cninfo_announce_state.json data_archive/ 2>/dev/null || true
-          cp market_cap_cache.json data_archive/ 2>/dev/null || true
-          git add -f data_archive/ 2>/dev/null || true
-          git diff --cached --quiet || git commit -m "Persist announcement archive $(date +%F)" || true
-          git push origin main || true
-
-      - name: Ensure ECharts library
-        if: always()
-        run: |
-          mkdir -p reports/dashboard/lib
-          if [ ! -s reports/dashboard/lib/echarts.min.js ]; then
-            curl -fsSL -o reports/dashboard/lib/echarts.min.js https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js
+          if [ -s cninfo_announce_filtered.json ]; then
+            python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('cninfo_announce_filtered.json')
+          rows = json.loads(p.read_text(encoding='utf-8'))
+          if not isinstance(rows, list):
+              raise SystemExit('filtered announcement data must be a list')
+          print(f'validated announcement rows: {len(rows)}')
+          PY
+            echo "valid=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            echo "::error::没有可用公告数据，也没有可恢复的历史归档。"
+            exit 1
           fi
 
-      - name: Extract Eastmoney PDFs
+      - name: Extract Eastmoney announcement content
         if: always()
         continue-on-error: true
-        timeout-minutes: 45
+        timeout-minutes: 60
         run: python mainboard_tool/extract_auto.py
 
       - name: Generate rule report
         if: always()
         continue-on-error: true
-        timeout-minutes: 20
-        run: |
-          if [ -s cninfo_announce_filtered.json ]; then
-            python mainboard_tool/rule_summarize.py
-          else
-            echo 'No filtered announcement data available; skip report.'
-          fi
+        timeout-minutes: 30
+        run: python mainboard_tool/rule_summarize.py
 
-      - name: Generate dashboard
+      - name: Generate dashboard data
         if: always()
         continue-on-error: true
-        timeout-minutes: 45
+        timeout-minutes: 60
         env:
           GITHUB_ACTIONS: '1'
         run: python scripts/gen_dashboard.py
 
-      - name: Prepare deployment
+      - name: Normalize dashboard and add manual update button
         if: always()
+        shell: bash
         run: |
-          mkdir -p _site
+          set -u
+          for f in reports/dashboard/dashboard.html reports/dashboard/index.html; do
+            [ -f "$f" ] || continue
+            python - "$f" <<'PY'
+          from pathlib import Path
+          import sys
+          p = Path(sys.argv[1])
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('巨潮资讯', '东方财富')
+          marker = 'data-manual-update="1"'
+          if marker not in s:
+              link = 'https://github.com/baibiaowang/agu-board/actions/workflows/manual-incremental-update.yml'
+              block = f'''\n<div data-manual-update="1" style="position:fixed;right:20px;top:20px;z-index:99999;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">\n  <a href="{link}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:#1677ff;color:#fff;text-decoration:none;font-size:14px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.18);">\n    ↻ 手动增量采集\n  </a>\n</div>\n'''
+              s = s.replace('</body>', block + '</body>', 1) if '</body>' in s else s + block
+          p.write_text(s, encoding='utf-8')
+          PY
+          done
+
+      - name: Build site and persist runtime state
+        if: always()
+        shell: bash
+        run: |
+          set -u
+          mkdir -p _site _site/data_archive _site/lib
           cp -r reports/dashboard/* _site/ 2>/dev/null || true
           [ -f _site/data_list.js ] || echo 'window.ANNO_LIST = [];' > _site/data_list.js
           [ -f _site/data_kline.js ] || echo 'window.ANNO_KLINE = {};' > _site/data_kline.js
-          mkdir -p _site/lib
-          cp reports/dashboard/lib/echarts.min.js _site/lib/ 2>/dev/null || true
-          mkdir -p _site/data_archive
+          if [ -s reports/dashboard/lib/echarts.min.js ]; then
+            cp reports/dashboard/lib/echarts.min.js _site/lib/echarts.min.js
+          elif [ ! -s _site/lib/echarts.min.js ]; then
+            curl -fsSL --retry 3 --retry-delay 2 -o _site/lib/echarts.min.js https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js
+          fi
           cp -r cninfo_announce_archive/* _site/data_archive/ 2>/dev/null || true
           cp cninfo_announce_state.json _site/data_archive/ 2>/dev/null || true
           cp market_cap_cache.json _site/data_archive/ 2>/dev/null || true
+          cp _site/data_list.js _site/data_archive/data_list.js 2>/dev/null || true
+          cp _site/data_kline.js _site/data_archive/data_kline.js 2>/dev/null || true
+          python - <<'PY'
+          import json
+          from datetime import datetime, timezone
+          from pathlib import Path
+          status = {
+              'generated_at_utc': datetime.now(timezone.utc).isoformat(),
+              'source': 'eastmoney',
+              'fetch_exit_code': '${{ steps.fetch.outputs.fetch_exit_code }}',
+              'input_valid': '${{ steps.input.outputs.valid }}',
+          }
+          Path('_site/data_archive/pipeline_status.json').write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding='utf-8')
+          PY
           if [ -f _site/dashboard.html ]; then cp _site/dashboard.html _site/index.html; fi
-          # GitHub Pages is static and must not embed repository credentials.
-          # Add a safe one-click entry to the workflow's manual-run page.
-          for f in _site/dashboard.html _site/index.html; do
-            if [ -f "$f" ]; then
-              python - "$f" <<'PY'
-from pathlib import Path
-import sys
-p = Path(sys.argv[1])
-s = p.read_text(encoding='utf-8')
-if 'data-manual-update="1"' in s:
-    raise SystemExit(0)
-link = 'https://github.com/baibiaowang/agu-board/actions/workflows/update-board.yml'
-html = f'''\n<div data-manual-update="1" style="position:fixed;right:20px;top:20px;z-index:99999;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">\n  <a href="{link}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:#1677ff;color:#fff;text-decoration:none;font-size:14px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.18);">\n    ↻ 手动增量采集\n  </a>\n</div>\n'''
-marker='</body>'
-if marker in s:
-    s=s.replace(marker,html+marker,1)
-else:
-    s += html
-p.write_text(s,encoding='utf-8')
-PY
-            fi
-          done
 
       - name: Deploy to GitHub Pages
         if: always() && github.ref == 'refs/heads/main'
@@ -196,19 +228,19 @@ PY
           publish_dir: ./_site
           publish_branch: gh-pages
           force_orphan: false
-          keep_files: true
-          commit_message: 'Update board ${{ github.run_id }}'
+          keep_files: false
+          commit_message: 'Update announcement board ${{ github.run_id }}'
 
-      - name: Upload diagnostics
+      - name: Final health check
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-output-${{ github.run_id }}
-          path: |
-            cninfo_announce_*.json
-            cninfo_announce_archive/
-            announce_pdf/
-            announce_txt/
-            reports/
-          if-no-files-found: warn
-          retention-days: 7
+        shell: bash
+        run: |
+          set -u
+          test -s _site/index.html
+          test -s _site/data_list.js
+          test -s _site/data_kline.js
+          test -s _site/lib/echarts.min.js
+          echo '=== Announcement board health ==='
+          echo "fetch_exit_code=${{ steps.fetch.outputs.fetch_exit_code }}"
+          echo "input_valid=${{ steps.input.outputs.valid }}"
+          echo 'site outputs: OK'
