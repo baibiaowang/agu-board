@@ -43,6 +43,7 @@ def main() -> None:
     require(production, "mainboard_tool/rule_summarize.py", "rule report path")
     require(production, "scripts/gen_dashboard_incremental.py", "SQLite incremental dashboard path")
     require(production, "board.db.zst", "SQLite persistence artifact")
+    require(production, "REQUIRE_SQLITE: '1'", "production SQLite enforcement")
     require(production, "steps.report_window.outputs.start", "report start output wiring")
     require(production, "steps.report_window.outputs.end", "report end output wiring")
     if "git push origin main" in read(production):
@@ -55,12 +56,14 @@ def main() -> None:
     require(manual, "manual-incremental-update.yml", "self-service dashboard target")
     require(manual, "PRE-DEPLOY HEALTH: OK", "pre-deploy health gate")
     require(manual, "scripts/gen_dashboard_incremental.py", "manual SQLite incremental path")
+    require(manual, "REQUIRE_SQLITE: '1'", "manual SQLite enforcement")
     require(manual, "board.db.zst", "manual SQLite persistence artifact")
 
     require(smoke, "End-to-End Smoke Test", "smoke workflow")
     require(smoke, "scripts/eastmoney_fetch.py", "Eastmoney smoke path")
     require(smoke, "mainboard_tool/extract_auto.py", "content extraction smoke path")
     require(smoke, "scripts/gen_dashboard_incremental.py", "SQLite incremental smoke path")
+    require(smoke, "historical SQLite seed", "seed detection")
 
     for path in (production, manual, smoke):
         content = read(path)
