@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>A股公告看板（2026-06-26 ~ 2026-09-07）</title>
+<title>A股主板公告看板(2026-08-06 ~ 08-09)</title>
 <style>
   :root {
     --bg: #f5f6fa;
@@ -169,7 +169,7 @@ const MIN_DATE = ALL_DATES.length ? ALL_DATES[0] : '';
 (function updateHeader() {
   const sub = document.getElementById('header_sub');
   if (sub && MIN_DATE && MAX_DATE) {
-    sub.textContent = `${MIN_DATE} ~ ${MAX_DATE} · 巨潮资讯全量公告 · 累积显示近90天数据 · 默认主板(不含ST)`;
+    sub.textContent = `${MIN_DATE} ~ ${MAX_DATE} · 东方财富全量公告 · 累积显示近90天数据 · 默认主板(不含ST)`;
   }
 })();
 function pad2(n) { return String(n).padStart(2, '0'); }
@@ -440,5 +440,11 @@ window.addEventListener('load', function(){ if(activeCode){ select(activeCode); 
 // 支持 ?stock= 参数跳转：从报告点击股票名跳转到对应K线
 (function(){const p=new URLSearchParams(location.search);const c=p.get('stock');if(c&&all.some(s=>s.code===c)){select(c);}})();
 </script>
+
+<div data-manual-update="1" style="position:fixed;right:20px;top:20px;z-index:99999;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <a href="https://github.com/baibiaowang/agu-board/actions/workflows/manual-incremental-update.yml" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:#1677ff;color:#fff;text-decoration:none;font-size:14px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.18);">
+    ↻ 手动增量采集
+  </a>
+</div>
 </body>
 </html>
