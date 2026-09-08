@@ -2,11 +2,11 @@ name: Update A-Share Announcement Board
 
 on:
   schedule:
-    - cron: '0 9 * * *'
+    - cron: '30 8 * * *'
       timezone: 'Asia/Shanghai'
-    - cron: '30 15 * * *'
+    - cron: '40 11 * * *'
       timezone: 'Asia/Shanghai'
-    - cron: '0 21 * * *'
+    - cron: '0 16 * * *'
       timezone: 'Asia/Shanghai'
   workflow_dispatch:
     inputs:
