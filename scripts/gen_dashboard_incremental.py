@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import sys
+import threading
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -40,19 +41,26 @@ def main() -> None:
         gen_dashboard.main()
         return
 
+    # gen_dashboard 使用线程并发请求 K 线/市值；sqlite3.Connection 默认禁止跨线程。
+    # 这里启用跨线程访问并用显式锁保护 SQLite 操作。网络请求保持在锁外，
+    # 因而不会把 HTTP 并发退化成串行。
+    db_lock = threading.RLock()
+
     try:
-        integrity_check(con)
-        stats = seed_stats(con)
+        with db_lock:
+            integrity_check(con)
+            stats = seed_stats(con)
         print(
             "[DB] 历史基线："
             f" stocks={stats['stocks']:,}, announcements={stats['announcements']:,}, klines={stats['klines']:,}; "
             f"公告日期={stats['ann_min_date']}~{stats['ann_max_date']}, K线日期={stats['kline_min_date']}~{stats['kline_max_date']}"
         )
 
-        scanned, changed = sync_announcement_json(
-            con,
-            [ROOT / "cninfo_announce_all.json", ROOT / "cninfo_announce_filtered.json"],
-        )
+        with db_lock:
+            scanned, changed = sync_announcement_json(
+                con,
+                [ROOT / "cninfo_announce_all.json", ROOT / "cninfo_announce_filtered.json"],
+            )
         if scanned:
             print(f"[DB] 增量同步公告：扫描 {scanned:,} 条，新增/更新 {changed:,} 条")
 
@@ -63,18 +71,21 @@ def main() -> None:
 
         def persist_kline(code: str, payload: dict) -> int:
             from board_db import upsert_kline_payload
-            written = upsert_kline_payload(con, code, payload)
-            con.commit()
+            with db_lock:
+                written = upsert_kline_payload(con, code, payload)
+                con.commit()
             return written
 
         def cached_fetch_kline(code: str, lmt: int = 120):
-            latest = latest_kline_date(con, code)
-            if latest and latest >= target_day:
-                counters["kline_cache"] += 1
-                return kline_payload(con, code, lmt)
-            counters["kline_network"] += 1
-            if not latest:
-                counters["kline_network_new"] += 1
+            with db_lock:
+                latest = latest_kline_date(con, code)
+                if latest and latest >= target_day:
+                    counters["kline_cache"] += 1
+                    return kline_payload(con, code, lmt)
+                counters["kline_network"] += 1
+                if not latest:
+                    counters["kline_network_new"] += 1
+
             payload = original_fetch_kline(code, lmt)
             try:
                 counters["kline_write"] += persist_kline(code, payload)
@@ -83,15 +94,21 @@ def main() -> None:
             return payload
 
         def cached_market_cap(code: str):
-            value = market_cap(con, code)
-            if value > 0:
-                counters["mv_cache"] += 1
-                return value
-            counters["mv_network"] += 1
+            with db_lock:
+                value = market_cap(con, code)
+                if value > 0:
+                    counters["mv_cache"] += 1
+                    return value
+                counters["mv_network"] += 1
+
             value = original_fetch_market_cap(code)
             if value > 0:
-                con.execute("UPDATE stocks SET market_value=?, updated_at=? WHERE code=?", (float(value), dt.datetime.now().isoformat(timespec="seconds"), code))
-                con.commit()
+                with db_lock:
+                    con.execute(
+                        "UPDATE stocks SET market_value=?, updated_at=? WHERE code=?",
+                        (float(value), dt.datetime.now().isoformat(timespec="seconds"), code),
+                    )
+                    con.commit()
             return value
 
         gen_dashboard.fetch_kline = cached_fetch_kline
@@ -102,7 +119,8 @@ def main() -> None:
             gen_dashboard.fetch_kline = original_fetch_kline
             gen_dashboard.fetch_market_cap = original_fetch_market_cap
 
-        con.commit()
+        with db_lock:
+            con.commit()
         print(
             "[DB] 看板增量统计："
             f" K线缓存命中={counters['kline_cache']}, 网络更新={counters['kline_network']}"
