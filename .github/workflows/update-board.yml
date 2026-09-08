@@ -188,10 +188,23 @@ jobs:
         timeout-minutes: 30
         run: python mainboard_tool/rule_summarize.py "${{ steps.report_window.outputs.start }}" "${{ steps.report_window.outputs.end }}"
 
+      - name: Require SQLite historical baseline
+        shell: bash
+        run: |
+          if [ -s board.db ]; then
+            echo '[DB] SQLite baseline ready'
+          elif [ -s data_archive/board.db.zst ]; then
+            echo '[DB] Persistent SQLite archive ready'
+          else
+            echo '::error::SQLite历史基线未安装。请把 board.db.zst 上传到 data_seed/ 后再运行生产流程。'
+            exit 1
+          fi
+
       - name: Generate dashboard data (SQLite incremental)
         timeout-minutes: 30
         env:
           GITHUB_ACTIONS: '1'
+          REQUIRE_SQLITE: '1'
         run: python scripts/gen_dashboard_incremental.py
 
       - name: Normalize dashboard and add manual update button
@@ -240,8 +253,6 @@ jobs:
             echo '[DB] board.db present for persistence'
             zstd -1 -q -f board.db -o _site/data_archive/board.db.zst
             test -s _site/data_archive/board.db.zst
-          else
-            echo '[DB] board.db not present; SQLite seed has not been installed yet'
           fi
           python - <<'PY'
           import json
@@ -269,10 +280,8 @@ jobs:
           test -s _site/lib/echarts.min.js
           grep -q 'window.ANNO_LIST' _site/data_list.js
           grep -q 'window.ANNO_KLINE' _site/data_kline.js
-          if [ -s board.db ]; then
-            test -s _site/data_archive/board.db.zst
-            echo 'PRE-DEPLOY DB HEALTH: OK'
-          fi
+          test -s _site/data_archive/board.db.zst
+          echo 'PRE-DEPLOY DB HEALTH: OK'
           echo 'PRE-DEPLOY HEALTH: OK'
 
       - name: Deploy to GitHub Pages
@@ -295,8 +304,8 @@ jobs:
             cninfo_announce_archive/
             announce_pdf/
             announce_txt/
-            reports/
             _site/data_archive/pipeline_status.json
+            _site/data_archive/board.db.zst
           if-no-files-found: warn
           retention-days: 7
 
@@ -308,13 +317,5 @@ jobs:
           echo "fetch_exit_code=${{ steps.fetch.outputs.fetch_exit_code }}"
           echo "input_valid=${{ steps.input.outputs.valid }}"
           echo "report_window=${{ steps.report_window.outputs.start }}~${{ steps.report_window.outputs.end }}"
-          if [ -s _site/index.html ] && [ -s _site/data_list.js ] && [ -s _site/data_kline.js ]; then
-            echo 'site_outputs=OK'
-          else
-            echo 'site_outputs=INCOMPLETE'
-          fi
-          if [ -s _site/data_archive/board.db.zst ]; then
-            echo 'database_persistence=OK'
-          else
-            echo 'database_persistence=NOT_PRESENT'
-          fi
+          test -s _site/index.html && echo 'site_outputs=OK' || echo 'site_outputs=INCOMPLETE'
+          test -s _site/data_archive/board.db.zst && echo 'database_persistence=OK' || echo 'database_persistence=INCOMPLETE'
