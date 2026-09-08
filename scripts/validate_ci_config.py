@@ -67,8 +67,10 @@ def main() -> None:
     require(smoke, "historical SQLite seed", "seed detection")
     require(smoke, "sqlite_concurrency_smoke.py", "SQLite cross-thread regression test")
 
+    # 检查真正的实现配置，而不是依赖注释措辞。
     require(db_backend, "check_same_thread=False", "SQLite cross-thread connection mode")
-    require(db_runner, "check_same_thread=False", "incremental runner uses cross-thread-safe SQLite mode")
+    require(db_runner, "db_lock = threading.RLock()", "incremental runner DB lock")
+    require(db_runner, "counter_lock = threading.Lock()", "incremental runner counter lock")
 
     for path in (production, manual, smoke):
         content = read(path)
