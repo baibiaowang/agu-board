@@ -3,6 +3,7 @@
 按类别分组、正则提取关键数字（金额/比例/股数），
 生成符合用户格式要求的 Markdown 报告。完全本地、不调用任何AI。
 """
+import hashlib
 import json, re
 import sys
 from pathlib import Path
@@ -19,7 +20,6 @@ FILTERED = BASE / "cninfo_announce_filtered.json"
 TXT_DIR = BASE / "announce_txt"
 REPORTS = BASE / "reports"
 
-# 报告章节顺序
 SEC_ORDER = ["并购重组", "出售/转让资产", "人事变动", "质押/解押",
              "业绩快报/预告", "立案/处罚/重大诉讼", "分红/增持/回购"]
 SEC_TITLE = {
@@ -31,7 +31,6 @@ SEC_TITLE = {
     "立案/处罚/重大诉讼": "🔴 立案/处罚/重大诉讼",
     "分红/增持/回购": "💰 分红/增持/回购",
 }
-# cninfo分类标签 → 报告章节
 CAT_TO_SEC = {
     "并购重组": "并购重组",
     "出售/转让": "出售/转让资产",
@@ -46,11 +45,34 @@ CAT_TO_SEC = {
 }
 
 
+def _article_id(x):
+    art = str(x.get("art_code") or x.get("_art_code") or "").strip()
+    if art:
+        return art
+    url = str(x.get("pdf_url") or x.get("url") or "").strip()
+    if url:
+        return hashlib.sha1(url.encode("utf-8")).hexdigest()[:20]
+    raw = f"{x.get('code','')}|{x.get('title','')}|{x.get('time','')}"
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:20]
+
+
 def find_txt(code):
+    """兼容旧调用：找该股票最近/最大的文本缓存。"""
     cands = [p for p in TXT_DIR.glob(f"{code}_*.txt")]
     if not cands:
         return ""
     return max(cands, key=lambda p: p.stat().st_size).read_text(encoding="utf-8", errors="ignore")
+
+
+def find_txt_for_announcement(x):
+    code = str(x.get("code") or "").strip()
+    if not code:
+        return ""
+    aid = _article_id(x)
+    exact = TXT_DIR / f"{code}_{aid}.txt"
+    if exact.exists() and exact.stat().st_size > 0:
+        return exact.read_text(encoding="utf-8", errors="ignore")
+    return ""
 
 
 def _num(s):
@@ -59,7 +81,6 @@ def _num(s):
 
 
 def extract_numbers(text):
-    """从公告原文提取金额/比例/股数，并做轻量合理性过滤剔除OCR乱码。"""
     if not text:
         return []
     out, seen = [], set()
@@ -75,7 +96,6 @@ def extract_numbers(text):
                 v = _num(s)
             except Exception:
                 continue
-            # 过滤明显噪声：比例不可能 >1000%；金额/股数过大或过小视为乱码
             if "%" in s and (v < 0 or v > 1000):
                 continue
             if "元" in s or "股" in s:
@@ -91,7 +111,6 @@ def clean(t):
     return re.sub(r"\s+", " ", t or "").strip()
 
 
-# ============ 近半月相关股票概览（基于归档记忆）============
 def build_universe(days=15, end_date=None):
     """合并近 days 天各次运行归档的筛选结果（去重），用于「近半月相关股票」展示。"""
     import datetime as _dt, re as _re
@@ -120,7 +139,6 @@ def build_universe(days=15, end_date=None):
                 continue
             seen.add(k)
             merged.append(a)
-    # 合并当期（可能尚未归档）
     if FILTERED.exists():
         try:
             for a in json.loads(FILTERED.read_text(encoding="utf-8")):
@@ -135,7 +153,6 @@ def build_universe(days=15, end_date=None):
 
 
 def universe_summary(merged, days=15):
-    """返回半月概览的 Markdown 行列表。"""
     L = []
     if not merged:
         L.append("**近半月无历史归档**（首次运行或归档为空）。可多次运行后查看近半月累计相关股票。")
@@ -309,19 +326,29 @@ def build_report_html(start, end, now, rows, total, filename):
 
 
 def main(start, end):
-    fl = build_universe(days=99999)  # 合并全部归档+当期，覆盖完整区间
+    try:
+        start_d = datetime.strptime(start, "%Y-%m-%d").date()
+        end_d = datetime.strptime(end, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError("报告日期必须为 YYYY-MM-DD") from exc
+    if start_d > end_d:
+        raise ValueError(f"报告起始日期不能晚于结束日期：{start} > {end}")
+
+    days = (end_d - start_d).days + 1
+    fl = build_universe(days=days, end_date=end)
     seen, items = set(), []
     for x in fl:
+        raw_time = str(x.get("time") or x.get("date") or "")[:10]
+        if raw_time and not start <= raw_time <= end:
+            continue
         k = (x.get("code"), x.get("title"))
         if k in seen:
             continue
         seen.add(k)
         items.append(x)
 
-    # 市值映射
     mv_map = load_market_cap()
 
-    # 按 (分类, 股票) 合并（含全部板块）
     groups = defaultdict(lambda: defaultdict(list))
     for x in items:
         sec = None
@@ -352,22 +379,25 @@ def main(start, end):
             date_str = dates[-1] if dates else "—"
             titles = [x.get("title", "") for x in xs]
             title_str = titles[0] if len(titles) == 1 else f"{titles[0]} 等{len(titles)}份公告"
-            txt = find_txt(code)
-            nums = list(dict.fromkeys(extract_numbers(txt)))[:10]
+            texts = [find_txt_for_announcement(x) for x in xs]
+            texts = [t for t in texts if t]
+            if texts:
+                nums = list(dict.fromkeys(extract_numbers("\n".join(texts))))[:10]
+            else:
+                nums = []
             nums_str = "；".join(nums) if nums else "—"
             mv = mv_map.get(code, 0)
             rows.append((sec, SEC_TITLE[sec], name, code, board, is_st, date_str, title_str, nums_str, mv))
             total += 1
 
-    # 生成数据 JSON（全部 rows，供前端分页 API 按需加载）
     data_rows = []
     for sec, sec_title, name, code, board, is_st, date_str, title_str, nums_str, mv in rows:
         data_rows.append({
             "name": name, "code": code, "board": board, "is_st": is_st,
             "bd": board + ("·ST" if is_st else ""),
             "cat": sec, "cat_title": sec_title, "date": date_str,
-            "title": title_str, "nums": nums_str, "mv": fmt_mv(mv),
-            "kw": " ".join([name, code, title_str]),
+            "title": title_str, "nums": nums_str,
+            "mv": fmt_mv(mv), "kw": " ".join([name, code, title_str]),
         })
     data = {"range": start + " ~ " + end, "total": total, "rows": data_rows}
     REPORTS.mkdir(exist_ok=True)
@@ -381,9 +411,7 @@ def main(start, end):
     return str(out_path)
 
 
-
 if __name__ == "__main__":
-    import sys
     s = sys.argv[1] if len(sys.argv) > 1 else ""
     e = sys.argv[2] if len(sys.argv) > 2 else ""
     if not s or not e:
