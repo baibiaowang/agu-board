@@ -29,8 +29,9 @@ def main() -> None:
     smoke = WF / "smoke-test.yml"
     db_backend = ROOT / "scripts" / "board_db.py"
     db_runner = ROOT / "scripts" / "gen_dashboard_incremental.py"
+    db_test = ROOT / "scripts" / "sqlite_concurrency_smoke.py"
 
-    for path in (production, manual, smoke, db_backend, db_runner):
+    for path in (production, manual, smoke, db_backend, db_runner, db_test):
         if not path.exists():
             raise SystemExit(f"[FAIL] missing required file: {path.relative_to(ROOT)}")
 
@@ -64,6 +65,10 @@ def main() -> None:
     require(smoke, "mainboard_tool/extract_auto.py", "content extraction smoke path")
     require(smoke, "scripts/gen_dashboard_incremental.py", "SQLite incremental smoke path")
     require(smoke, "historical SQLite seed", "seed detection")
+    require(smoke, "sqlite_concurrency_smoke.py", "SQLite cross-thread regression test")
+
+    require(db_backend, "check_same_thread=False", "SQLite cross-thread connection mode")
+    require(db_runner, "thread-affinity check is disabled", "SQLite concurrency guard documentation")
 
     for path in (production, manual, smoke):
         content = read(path)
