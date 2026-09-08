@@ -1,0 +1,56 @@
+name: End-to-End Smoke Test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Static self-check
+        run: python scripts/self_check.py
+
+      - name: Eastmoney fetch smoke test
+        env:
+          GITHUB_ACTIONS: '1'
+        run: |
+          TODAY=$(date -u +%F)
+          YESTERDAY=$(date -u -d '1 day ago' +%F)
+          python scripts/eastmoney_fetch.py "$YESTERDAY" "$TODAY"
+          test -s cninfo_announce_all.json
+          test -s cninfo_announce_filtered.json
+
+      - name: PDF/content extraction smoke test
+        run: python mainboard_tool/extract_auto.py
+
+      - name: Report smoke test
+        run: python mainboard_tool/rule_summarize.py "$(date -u -d '1 day ago' +%F)" "$(date -u +%F)"
+
+      - name: Dashboard smoke test
+        env:
+          GITHUB_ACTIONS: '1'
+        run: python scripts/gen_dashboard.py
+
+      - name: Verify outputs
+        run: |
+          test -s reports/dashboard/data_list.js
+          test -s reports/dashboard/dashboard.html
+          echo 'END-TO-END SMOKE TEST PASSED'
