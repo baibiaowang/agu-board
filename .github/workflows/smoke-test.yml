@@ -11,7 +11,7 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -31,6 +31,15 @@ jobs:
       - name: Static self-check
         run: python scripts/self_check.py
 
+      - name: Detect historical SQLite seed
+        shell: bash
+        run: |
+          if [ -s data_seed/board.db.zst ]; then
+            echo '[SMOKE] historical SQLite seed present'
+          else
+            echo '[SMOKE] no historical SQLite seed in main branch; network-compatible mode will be used'
+          fi
+
       - name: Eastmoney fetch smoke test
         env:
           GITHUB_ACTIONS: '1'
@@ -47,13 +56,22 @@ jobs:
       - name: Report smoke test
         run: python mainboard_tool/rule_summarize.py "$(TZ=Asia/Shanghai date -d '1 day ago' +%F)" "$(TZ=Asia/Shanghai date +%F)"
 
-      - name: Dashboard smoke test
+      - name: Dashboard smoke test (SQLite incremental)
         env:
           GITHUB_ACTIONS: '1'
-        run: python scripts/gen_dashboard.py
+        run: python scripts/gen_dashboard_incremental.py
 
       - name: Verify outputs
         run: |
           test -s reports/dashboard/data_list.js
           test -s reports/dashboard/dashboard.html
+          if [ -s board.db ]; then
+            python - <<'PY'
+            from scripts.board_db import connect, integrity_check, seed_stats
+            con = connect()
+            integrity_check(con)
+            print('[SMOKE] SQLite integrity OK:', seed_stats(con))
+            con.close()
+            PY
+          fi
           echo 'END-TO-END SMOKE TEST PASSED'
