@@ -23,12 +23,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: pip
@@ -100,9 +100,20 @@ jobs:
         timeout-minutes: 60
         run: python mainboard_tool/extract_auto.py
 
+      - name: Determine report window
+        id: report_window
+        shell: bash
+        run: |
+          set -u
+          TODAY=$(TZ=Asia/Shanghai date +%F)
+          START=$(TZ=Asia/Shanghai date -d '1 day ago' +%F)
+          echo "start=$START" >> "$GITHUB_OUTPUT"
+          echo "end=$TODAY" >> "$GITHUB_OUTPUT"
+          echo "report_window=$START~$TODAY"
+
       - name: Generate rule report
         timeout-minutes: 30
-        run: python mainboard_tool/rule_summarize.py
+        run: python mainboard_tool/rule_summarize.py "${{ steps.report_window.outputs.start }}" "${{ steps.report_window.outputs.end }}"
 
       - name: Generate dashboard data
         timeout-minutes: 60
@@ -160,6 +171,8 @@ jobs:
               'mode': 'incremental',
               'fetch_exit_code': '${{ steps.fetch.outputs.fetch_exit_code }}',
               'input_valid': '${{ steps.input.outputs.valid }}',
+              'report_start': '${{ steps.report_window.outputs.start }}',
+              'report_end': '${{ steps.report_window.outputs.end }}',
           }
           Path('_site/data_archive/pipeline_status.json').write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding='utf-8')
           PY
@@ -188,7 +201,7 @@ jobs:
 
       - name: Upload diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: manual-debug-output-${{ github.run_id }}
           path: |
@@ -208,6 +221,7 @@ jobs:
           echo '=== Manual incremental board final summary ==='
           echo "fetch_exit_code=${{ steps.fetch.outputs.fetch_exit_code }}"
           echo "input_valid=${{ steps.input.outputs.valid }}"
+          echo "report_window=${{ steps.report_window.outputs.start }}~${{ steps.report_window.outputs.end }}"
           if [ -s _site/index.html ] && [ -s _site/data_list.js ] && [ -s _site/data_kline.js ]; then
             echo 'site_outputs=OK'
           else
