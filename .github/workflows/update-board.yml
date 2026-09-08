@@ -69,7 +69,7 @@ jobs:
         run: |
           set -u
           rm -rf .ghpages_state
-          mkdir -p .ghpages_state cninfo_announce_archive
+          mkdir -p .ghpages_state cninfo_announce_archive data_archive
           if git fetch --depth=1 origin gh-pages:gh-pages-cache 2>/dev/null; then
             git archive gh-pages-cache data_archive 2>/dev/null | tar -x -C .ghpages_state || true
           fi
@@ -79,11 +79,13 @@ jobs:
             cp .ghpages_state/data_archive/market_cap_cache.json . 2>/dev/null || true
             cp .ghpages_state/data_archive/data_list.js reports/dashboard/data_list.js 2>/dev/null || true
             cp .ghpages_state/data_archive/data_kline.js reports/dashboard/data_kline.js 2>/dev/null || true
+            cp .ghpages_state/data_archive/board.db.zst data_archive/board.db.zst 2>/dev/null || true
           fi
           if [ -d data_archive ] && [ -n "$(ls -A data_archive 2>/dev/null || true)" ]; then
             cp -r data_archive/* cninfo_announce_archive/ 2>/dev/null || true
             cp data_archive/cninfo_announce_state.json . 2>/dev/null || true
             cp data_archive/market_cap_cache.json . 2>/dev/null || true
+            cp data_archive/board.db.zst . 2>/dev/null || true
           fi
           if [ ! -s cninfo_announce_filtered.json ]; then
             LATEST=$(ls -1t cninfo_announce_archive/filtered_*.json 2>/dev/null | head -n 1 || true)
@@ -186,11 +188,11 @@ jobs:
         timeout-minutes: 30
         run: python mainboard_tool/rule_summarize.py "${{ steps.report_window.outputs.start }}" "${{ steps.report_window.outputs.end }}"
 
-      - name: Generate dashboard data
-        timeout-minutes: 60
+      - name: Generate dashboard data (SQLite incremental)
+        timeout-minutes: 30
         env:
           GITHUB_ACTIONS: '1'
-        run: python scripts/gen_dashboard.py
+        run: python scripts/gen_dashboard_incremental.py
 
       - name: Normalize dashboard and add manual update button
         shell: bash
@@ -234,6 +236,13 @@ jobs:
           cp market_cap_cache.json _site/data_archive/ 2>/dev/null || true
           cp _site/data_list.js _site/data_archive/data_list.js
           cp _site/data_kline.js _site/data_archive/data_kline.js
+          if [ -s board.db ]; then
+            echo '[DB] board.db present for persistence'
+            zstd -1 -q -f board.db -o _site/data_archive/board.db.zst
+            test -s _site/data_archive/board.db.zst
+          else
+            echo '[DB] board.db not present; SQLite seed has not been installed yet'
+          fi
           python - <<'PY'
           import json
           from datetime import datetime, timezone
@@ -245,6 +254,7 @@ jobs:
               'input_valid': '${{ steps.input.outputs.valid }}',
               'report_start': '${{ steps.report_window.outputs.start }}',
               'report_end': '${{ steps.report_window.outputs.end }}',
+              'database': 'sqlite-incremental',
           }
           Path('_site/data_archive/pipeline_status.json').write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding='utf-8')
           PY
@@ -259,6 +269,10 @@ jobs:
           test -s _site/lib/echarts.min.js
           grep -q 'window.ANNO_LIST' _site/data_list.js
           grep -q 'window.ANNO_KLINE' _site/data_kline.js
+          if [ -s board.db ]; then
+            test -s _site/data_archive/board.db.zst
+            echo 'PRE-DEPLOY DB HEALTH: OK'
+          fi
           echo 'PRE-DEPLOY HEALTH: OK'
 
       - name: Deploy to GitHub Pages
@@ -298,4 +312,9 @@ jobs:
             echo 'site_outputs=OK'
           else
             echo 'site_outputs=INCOMPLETE'
+          fi
+          if [ -s _site/data_archive/board.db.zst ]; then
+            echo 'database_persistence=OK'
+          else
+            echo 'database_persistence=NOT_PRESENT'
           fi
