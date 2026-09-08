@@ -96,27 +96,21 @@ jobs:
           fi
 
       - name: Extract Eastmoney announcement content
-        if: always()
         continue-on-error: true
         timeout-minutes: 60
         run: python mainboard_tool/extract_auto.py
 
       - name: Generate rule report
-        if: always()
-        continue-on-error: true
         timeout-minutes: 30
         run: python mainboard_tool/rule_summarize.py
 
       - name: Generate dashboard data
-        if: always()
-        continue-on-error: true
         timeout-minutes: 60
         env:
           GITHUB_ACTIONS: '1'
         run: python scripts/gen_dashboard.py
 
       - name: Normalize dashboard and add manual update button
-        if: always()
         shell: bash
         run: |
           set -u
@@ -136,24 +130,26 @@ jobs:
           done
 
       - name: Build site and persist runtime state
-        if: always()
         shell: bash
         run: |
           set -u
           mkdir -p _site _site/data_archive _site/lib
-          cp -r reports/dashboard/* _site/ 2>/dev/null || true
-          [ -f _site/data_list.js ] || echo 'window.ANNO_LIST = [];' > _site/data_list.js
+          cp -r reports/dashboard/* _site/
+          [ -s _site/index.html ] || { [ -s _site/dashboard.html ] && cp _site/dashboard.html _site/index.html; }
+          [ -s _site/index.html ] || { echo 'dashboard index missing' >&2; exit 1; }
+          [ -s _site/data_list.js ] || echo 'window.ANNO_LIST = [];' > _site/data_list.js
           [ -f _site/data_kline.js ] || echo 'window.ANNO_KLINE = {};' > _site/data_kline.js
           if [ -s reports/dashboard/lib/echarts.min.js ]; then
             cp reports/dashboard/lib/echarts.min.js _site/lib/echarts.min.js
           elif [ ! -s _site/lib/echarts.min.js ]; then
             curl -fsSL --retry 3 --retry-delay 2 -o _site/lib/echarts.min.js https://cdn.jsdelivr.net/npm/echarts@5.6.0/dist/echarts.min.js
           fi
+          test -s _site/lib/echarts.min.js
           cp -r cninfo_announce_archive/* _site/data_archive/ 2>/dev/null || true
           cp cninfo_announce_state.json _site/data_archive/ 2>/dev/null || true
           cp market_cap_cache.json _site/data_archive/ 2>/dev/null || true
-          cp _site/data_list.js _site/data_archive/data_list.js 2>/dev/null || true
-          cp _site/data_kline.js _site/data_archive/data_kline.js 2>/dev/null || true
+          cp _site/data_list.js _site/data_archive/data_list.js
+          cp _site/data_kline.js _site/data_archive/data_kline.js
           python - <<'PY'
           import json
           from datetime import datetime, timezone
@@ -167,10 +163,20 @@ jobs:
           }
           Path('_site/data_archive/pipeline_status.json').write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding='utf-8')
           PY
-          if [ -f _site/dashboard.html ]; then cp _site/dashboard.html _site/index.html; fi
+
+      - name: Pre-deploy health check
+        shell: bash
+        run: |
+          set -u
+          test -s _site/index.html
+          test -s _site/data_list.js
+          test -s _site/data_kline.js
+          test -s _site/lib/echarts.min.js
+          grep -q 'window.ANNO_LIST' _site/data_list.js
+          grep -q 'window.ANNO_KLINE' _site/data_kline.js
+          echo 'PRE-DEPLOY HEALTH: OK'
 
       - name: Deploy to GitHub Pages
-        if: always() && github.ref == 'refs/heads/main'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -180,15 +186,30 @@ jobs:
           keep_files: false
           commit_message: 'Manual incremental board update ${{ github.run_id }}'
 
-      - name: Final health check
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manual-debug-output-${{ github.run_id }}
+          path: |
+            cninfo_announce_*.json
+            cninfo_announce_archive/
+            announce_pdf/
+            announce_txt/
+            reports/
+            _site/data_archive/pipeline_status.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Final health summary
         if: always()
         shell: bash
         run: |
-          set -u
-          test -s _site/index.html
-          test -s _site/data_list.js
-          test -s _site/data_kline.js
-          test -s _site/lib/echarts.min.js
-          echo 'MANUAL INCREMENTAL UPDATE HEALTH: OK'
+          echo '=== Manual incremental board final summary ==='
           echo "fetch_exit_code=${{ steps.fetch.outputs.fetch_exit_code }}"
           echo "input_valid=${{ steps.input.outputs.valid }}"
+          if [ -s _site/index.html ] && [ -s _site/data_list.js ] && [ -s _site/data_kline.js ]; then
+            echo 'site_outputs=OK'
+          else
+            echo 'site_outputs=INCOMPLETE'
+          fi
