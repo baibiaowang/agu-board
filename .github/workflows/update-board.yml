@@ -97,7 +97,7 @@ jobs:
             cp data_archive/market_cap_cache.json . 2>/dev/null || true
           fi
 
-      - name: Run data fetch
+      - name: Run Eastmoney data fetch
         run: |
           # Set env var to adapt to GitHub Actions
           export GITHUB_ACTIONS=1
@@ -112,13 +112,13 @@ jobs:
               END=$(date +%F)
             fi
             echo "Backfill mode: $START ~ $END"
-            python scripts/cninfo_fetch.py "$START" "$END"
+            python scripts/eastmoney_fetch.py "$START" "$END"
           elif [ "${{ github.event.inputs.full_rescan }}" = "true" ]; then
             echo "Running full rescan..."
-            python scripts/cninfo_fetch.py --full
+            python scripts/eastmoney_fetch.py --full
           else
-            echo "Running incremental fetch..."
-            python scripts/cninfo_fetch.py
+            echo "Running Eastmoney incremental fetch..."
+            python scripts/eastmoney_fetch.py
           fi
         timeout-minutes: 85
 
