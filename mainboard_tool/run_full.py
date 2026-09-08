@@ -3,7 +3,7 @@ import sys
 import os
 import json
 from pathlib import Path
-from datetime import date, timedelta, datetime, timezone
+from datetime import timedelta, datetime, timezone
 
 for _stream in (sys.stdout, sys.stderr):
     if _stream is not None:
@@ -53,7 +53,8 @@ def default_window():
             st = json.loads(STATE_PATH.read_text(encoding="utf-8"))
             last = st.get("last_end_date")
             if last:
-                start = datetime.strptime(last, "%Y-%m-%d").date()
+                remembered = datetime.strptime(last, "%Y-%m-%d").date()
+                start = min(remembered, end)
     except Exception:
         pass
     return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
@@ -105,6 +106,15 @@ def run(start=None, end=None, log=None, full_rescan=False, preset=None):
             start = (beijing_today() - timedelta(days=90)).strftime("%Y-%m-%d")
         else:
             start, end = default_window()
+
+    try:
+        start_d = datetime.strptime(start, "%Y-%m-%d").date()
+        end_d = datetime.strptime(end, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise ValueError("日期必须为 YYYY-MM-DD") from exc
+    if start_d > end_d:
+        raise ValueError(f"起始日期不能晚于结束日期：{start} > {end}")
+
     mode = ("【档位·" + preset + "】") if preset else ("【全量重扫】" if full_rescan else "【增量/记忆模式】")
     progress(f"{mode} 数据窗口：{start} ~ {end}")
 
@@ -118,7 +128,6 @@ def run(start=None, end=None, log=None, full_rescan=False, preset=None):
         if err:
             errors.append(("公告采集", err))
 
-        # 即使本次网络采集失败，也继续使用工作目录里上一份有效 filtered 数据生成报告/看板。
         ok, _, err = _stage(progress, "[2/4] 东方财富公告 PDF 原文提取", extract_auto.main)
         results["extract"] = ok
         if err:
@@ -136,7 +145,7 @@ def run(start=None, end=None, log=None, full_rescan=False, preset=None):
     finally:
         sys.stdout = old_stdout
 
-    report = str(BASE / "reports" / f"A股主板公告总结_{start}_{end}.md")
+    report = str(BASE / "reports" / f"A股公告总结_{start}_{end}.html")
     dashboard = str(BASE / "reports" / "dashboard" / "dashboard.html")
     progress(f"完成阶段：{', '.join(k for k,v in results.items() if v) or '无'}")
     if errors:
