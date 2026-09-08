@@ -9,7 +9,9 @@ if [ -d ".venv" ]; then
     source .venv/bin/activate
 fi
 
-# HOST/PORT/AUTH_PASSWORD 可环境变量覆盖；默认监听所有网卡
+# HOST/PORT/AUTH_PASSWORD 可环境变量覆盖。
+# 默认仅监听本机；需要局域网/公网访问时请显式设置 HOST，服务器部署建议同时设置 AUTH_PASSWORD。
+export HOST="${HOST:-127.0.0.1}"
 export PYTHONIOENCODING=utf-8
 # 如需密码：export AUTH_PASSWORD='你的密码'
 cd mainboard_tool
