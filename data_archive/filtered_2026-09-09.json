@@ -6144,5 +6144,95 @@
     "cats": [
       "分红/增持/回购"
     ]
+  },
+  {
+    "code": "301199",
+    "name": "迈赫股份",
+    "title": "迈赫股份:关于首次回购公司股份的公告",
+    "time": "2026-09-09 00:00:00",
+    "url": "https://data.eastmoney.com/notices/detail/301199/AN202609091829172318.html",
+    "pdf_url": "https://pdf.dfcfw.com/pdf/H2_AN202609091829172318_1.pdf",
+    "art_code": "AN202609091829172318",
+    "pageColumn": "",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "300149",
+    "name": "睿智医药",
+    "title": "睿智医药:关于独立董事任期满六年辞职的公告",
+    "time": "2026-09-09 00:00:00",
+    "url": "https://data.eastmoney.com/notices/detail/300149/AN202609091829172109.html",
+    "pdf_url": "https://pdf.dfcfw.com/pdf/H2_AN202609091829172109_1.pdf",
+    "art_code": "AN202609091829172109",
+    "pageColumn": "001002005002",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "人事变动"
+    ]
+  },
+  {
+    "code": "300833",
+    "name": "浩洋股份",
+    "title": "浩洋股份:关于全资子公司收购股权完成交割的公告",
+    "time": "2026-09-09 00:00:00",
+    "url": "https://data.eastmoney.com/notices/detail/300833/AN202609091829172114.html",
+    "pdf_url": "https://pdf.dfcfw.com/pdf/H2_AN202609091829172114_1.pdf",
+    "art_code": "AN202609091829172114",
+    "pageColumn": "001002007003004",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "并购重组"
+    ]
+  },
+  {
+    "code": "300132",
+    "name": "诺斯贝尔",
+    "title": "诺斯贝尔:关于首次回购公司股份的公告",
+    "time": "2026-09-09 00:00:00",
+    "url": "https://data.eastmoney.com/notices/detail/300132/AN202609091829171897.html",
+    "pdf_url": "https://pdf.dfcfw.com/pdf/H2_AN202609091829171897_1.pdf",
+    "art_code": "AN202609091829171897",
+    "pageColumn": "001002007003009005",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "920068",
+    "name": "天工股份",
+    "title": "天工股份:首次回购暨回购进展情况公告",
+    "time": "2026-09-09 00:00:00",
+    "url": "https://data.eastmoney.com/notices/detail/920068/AN202609091829171878.html",
+    "pdf_url": "https://pdf.dfcfw.com/pdf/H2_AN202609091829171878_1.pdf",
+    "art_code": "AN202609091829171878",
+    "pageColumn": "001002007003009004",
+    "board": "北交所",
+    "is_st": false,
+    "cats": [
+      "分红/增持/回购"
+    ]
+  },
+  {
+    "code": "301358",
+    "name": "湖南裕能",
+    "title": "湖南裕能:关于持股5%以上股东部分股份解除质押的公告",
+    "time": "2026-09-09 00:00:00",
+    "url": "https://data.eastmoney.com/notices/detail/301358/AN202609091829170970.html",
+    "pdf_url": "https://pdf.dfcfw.com/pdf/H2_AN202609091829170970_1.pdf",
+    "art_code": "AN202609091829170970",
+    "pageColumn": "001002006010",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "质押/解押"
+    ]
   }
 ]
