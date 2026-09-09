@@ -1,9 +1,9 @@
 {
-  "generated_at_utc": "2026-09-08T14:31:02.428519+00:00",
+  "generated_at_utc": "2026-09-09T05:06:22.510636+00:00",
   "source": "eastmoney",
   "fetch_exit_code": "0",
   "input_valid": "true",
-  "report_start": "2026-09-06",
-  "report_end": "2026-09-08",
+  "report_start": "2026-09-08",
+  "report_end": "2026-09-09",
   "database": "sqlite-incremental"
 }

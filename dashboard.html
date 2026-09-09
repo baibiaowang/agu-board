@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>A股公告看板（2026-06-26 ~ 2026-09-08）</title>
+<title>A股公告看板（2026-06-26 ~ 2026-09-09）</title>
 <style>
   :root {
     --bg: #f5f6fa;
@@ -118,7 +118,7 @@
 </head>
 <body>
 
-<div class="toolbar" style="flex-wrap:nowrap;">
+<div class="toolbar" style="flex-wrap:wrap;">
   <div class="search">
     <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
     <input id="search" type="text" placeholder="搜索代码 / 名称 / 事件关键词...">
@@ -130,6 +130,12 @@
   </div>
 </div>
 
+
+<div data-manual-update="1" style="padding:8px 24px;display:flex;justify-content:flex-end;align-items:center;background:#ffffff;border-bottom:1px solid #e6e8ef;">
+  <a href="https://github.com/baibiaowang/agu-board/actions/workflows/manual-incremental-update.yml" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;background:#1677ff;color:#fff;text-decoration:none;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,.10);">
+    ↻ 手动增量采集
+  </a>
+</div>
 <div class="main">
   <div class="list" id="list"></div>
   <div class="panel">
@@ -440,11 +446,5 @@ window.addEventListener('load', function(){ if(activeCode){ select(activeCode); 
 // 支持 ?stock= 参数跳转：从报告点击股票名跳转到对应K线
 (function(){const p=new URLSearchParams(location.search);const c=p.get('stock');if(c&&all.some(s=>s.code===c)){select(c);}})();
 </script>
-
-<div data-manual-update="1" style="position:fixed;right:20px;top:20px;z-index:99999;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <a href="https://github.com/baibiaowang/agu-board/actions/workflows/manual-incremental-update.yml" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;background:#1677ff;color:#fff;text-decoration:none;font-size:14px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.18);">
-    ↻ 手动增量采集
-  </a>
-</div>
 </body>
 </html>
