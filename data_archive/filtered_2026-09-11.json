@@ -10907,5 +10907,95 @@
     "cats": [
       "质押/解押"
     ]
+  },
+  {
+    "code": "301390",
+    "name": "经纬股份",
+    "title": "经纬股份:关于筹划控制权变更进展暨继续停牌的公告",
+    "time": "2026-09-11 00:00:00",
+    "url": "https://data.eastmoney.com/notices/detail/301390/AN202609111829268089.html",
+    "pdf_url": "https://pdf.dfcfw.com/pdf/H2_AN202609111829268089_1.pdf",
+    "art_code": "AN202609111829268089",
+    "pageColumn": "001002004008",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "并购重组"
+    ]
+  },
+  {
+    "code": "300333",
+    "name": "兆日科技",
+    "title": "兆日科技:关于发行股份及支付现金购买资产并募集配套资金暨关联交易事项的进展公告",
+    "time": "2026-09-11 00:00:00",
+    "url": "https://data.eastmoney.com/notices/detail/300333/AN202609111829268053.html",
+    "pdf_url": "https://pdf.dfcfw.com/pdf/H2_AN202609111829268053_1.pdf",
+    "art_code": "AN202609111829268053",
+    "pageColumn": "001002007005",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "并购重组"
+    ]
+  },
+  {
+    "code": "301055",
+    "name": "张小泉",
+    "title": "张小泉:关于持股5%以上股东所持部分股份质押的公告",
+    "time": "2026-09-11 00:00:00",
+    "url": "https://data.eastmoney.com/notices/detail/301055/AN202609111829268032.html",
+    "pdf_url": "https://pdf.dfcfw.com/pdf/H2_AN202609111829268032_1.pdf",
+    "art_code": "AN202609111829268032",
+    "pageColumn": "001002006010",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "质押/解押"
+    ]
+  },
+  {
+    "code": "123138",
+    "name": "丝路转债",
+    "title": "丝路视觉:关于新增累计诉讼、仲裁情况的公告",
+    "time": "2026-09-11 00:00:00",
+    "url": "https://data.eastmoney.com/notices/detail/123138/AN202609111829267288.html",
+    "pdf_url": "https://pdf.dfcfw.com/pdf/H2_AN202609111829267288_1.pdf",
+    "art_code": "AN202609111829267288",
+    "pageColumn": "001002006014",
+    "board": "其他",
+    "is_st": false,
+    "cats": [
+      "重大诉讼"
+    ]
+  },
+  {
+    "code": "301486",
+    "name": "致尚科技",
+    "title": "关于终止对致尚科技重大资产重组审核的决定",
+    "time": "2026-09-11 00:00:00",
+    "url": "https://data.eastmoney.com/notices/detail/301486/AN202609111829264960.html",
+    "pdf_url": "https://pdf.dfcfw.com/pdf/H2_AN202609111829264960_1.pdf",
+    "art_code": "AN202609111829264960",
+    "pageColumn": "010001008001009",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "并购重组"
+    ]
+  },
+  {
+    "code": "300889",
+    "name": "爱克股份",
+    "title": "2-1重大资产重组报告书(注册稿)(深圳爱克莱特科技股份有限公司)",
+    "time": "2026-09-11 00:00:00",
+    "url": "https://data.eastmoney.com/notices/detail/300889/AN202609111829264715.html",
+    "pdf_url": "https://pdf.dfcfw.com/pdf/H2_AN202609111829264715_1.pdf",
+    "art_code": "AN202609111829264715",
+    "pageColumn": "010001008002003011",
+    "board": "创业板",
+    "is_st": false,
+    "cats": [
+      "并购重组"
+    ]
   }
 ]
