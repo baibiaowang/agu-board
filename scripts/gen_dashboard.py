@@ -26,6 +26,10 @@ DASH = BASE / "reports" / "dashboard"
 MV_CACHE = BASE / "market_cap_cache.json"
 LIB_ECHARTS = RES / "reports" / "dashboard" / "lib" / "echarts.min.js"
 
+# 看板只渲染最近 60 个交易日。拉取与截断共用这一个常量，
+# 避免「请求 120 根、最后只留 60 根」这种白跑一半的情况。
+KLINE_BARS = 60
+
 # GitHub Actions: 尝试从 data_archive 恢复历史数据
 if is_github_actions():
     DATA_ARCHIVE = BASE / "data_archive"
@@ -134,10 +138,11 @@ def _atomic_write_text(path, text):
         os.fsync(f.fileno())
     os.replace(tmp, str(path))
 
-def fetch_kline(code, lmt=120):
+def fetch_kline(code, lmt=KLINE_BARS):
     """K线拉取：
     - 北交所(83/87/88/43/92 开头)：东财无数据，直接走腾讯源（newfqkline 接口，返回完整前复权日K）。
     - 沪深：优先东财，失败自动切腾讯源兜底。
+    默认只取 KLINE_BARS 根：下游本来就按这个数截断，多取只会放大网络与序列化开销。
     """
     is_bj = code.startswith(("83", "87", "88", "43", "92"))
     last_err = None
@@ -333,13 +338,19 @@ def main():
                     agg[code]["announcements"].append(old_ann)
 
     # 拉K线：新增股票全拉；存量股票若K线最后日期早于最近交易日也重新拉取（避免K线陈旧）
+    # 基准必须是「最近交易日」而不是自然日：K 线最后一根只可能落在交易日，用
+    # date.today() 比较会让周末 / 节假日 / 盘前的每一只股票都判定为陈旧，
+    # 把整个股票池（数千只）都塞进拉取队列。
     import datetime as _dt
-    _today = _dt.date.today().strftime("%Y-%m-%d")
+    _baseline = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=8))).date()
+    while _baseline.weekday() >= 5:
+        _baseline -= _dt.timedelta(days=1)
+    _baseline = _baseline.strftime("%Y-%m-%d")
     def _kline_stale(code):
         kl = old_data[code].get("klines") if code in old_data else None
         if not kl:
             return True  # 无旧K线，需要拉取
-        return kl[-1][0] < _today  # K线最后日期早于今天 → 陈旧，重新拉取
+        return kl[-1][0] < _baseline  # K线最后日期早于最近交易日 → 陈旧，重新拉取
     codes_to_fetch = [c for c in order if _kline_stale(c)]
     kline_results = {}
     if codes_to_fetch:
@@ -415,9 +426,9 @@ def main():
         # 保留所有历史公告（不限于4条），按日期排序
         anns = sorted([a for a in s["announcements"] if a["date"]], key=lambda a: a["date"])
         reason = anns[-1]["title"] if anns else "入选本期公告"
-        # 截断到最近60个交易日（减少前端下载与渲染数据量）
-        if len(klines) > 60:
-            klines = klines[-60:]
+        # 截断到最近 KLINE_BARS 个交易日（减少前端下载与渲染数据量）
+        if len(klines) > KLINE_BARS:
+            klines = klines[-KLINE_BARS:]
         # 预计算涨跌幅（前端渲染不再重复遍历K线，大幅提速）
         chg = 0; chg5 = 0; chg_ann = None
         if len(klines) >= 2:

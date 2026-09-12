@@ -139,7 +139,7 @@
       <div id="p_anns" style="display:none;"></div>
     </div>
     <div id="chart"><div class="empty">👈 从左侧选择一只股票</div></div>
-    <div class="hint">列表指标:<b>今</b>=当日涨跌 · <b>公告</b>=公告发布后累计涨跌 · <b>5日</b>=近5日累计涨跌(红涨绿跌)|K线:近120交易日,橙色📌=公告发布日,悬停查看公告</div>
+    <div class="hint">列表指标:<b>今</b>=当日涨跌 · <b>公告</b>=公告发布后累计涨跌 · <b>5日</b>=近5日累计涨跌(红涨绿跌)|K线:近60交易日,橙色📌=公告发布日,悬停查看公告</div>
   </div>
 </div>
 
@@ -173,10 +173,16 @@ const MIN_DATE = ALL_DATES.length ? ALL_DATES[0] : '';
   }
 })();
 function pad2(n) { return String(n).padStart(2, '0'); }
+// filtered() 会对每只股票都调用一次 cutoff()，股票上千时每次都 new Date() 是纯浪费。
+// MAX_DATE 在页面生命周期内不变，这里按天数记忆化。
+const _cutoffCache = {};
 function cutoff(n) {
+  if (n in _cutoffCache) return _cutoffCache[n];
   const d = new Date(MAX_DATE + 'T00:00:00');
   d.setDate(d.getDate() - n);
-  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  const v = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  _cutoffCache[n] = v;
+  return v;
 }
 function renderRanges() {
   const ranges = [['', '全部时间'], ['3d', '近3天'], ['7d', '一周'], ['15d', '半月'], ['30d', '一个月'], ['30d+', '一个月之前']];
@@ -422,14 +428,22 @@ function drawChart(s) {
     ],
   };
   chart.setOption(option);
-  window.addEventListener('resize', () => chart && chart.resize());
 }
+
+// resize 监听只注册一次。原先写在 drawChart() 内部，每选一只股票就多挂一个监听器，
+// 选过 N 只之后每次窗口变化都会触发 N 次 chart.resize()。
+window.addEventListener('resize', function () { if (chart) chart.resize(); });
 
 // init
 renderCats();
 renderBoards();
 renderRanges();
-document.getElementById('search').addEventListener('input', renderList);
+// 股票上千只时，每敲一个字符都全量重建 innerHTML 会明显卡顿，这里做 150ms 防抖。
+let _searchTimer = null;
+document.getElementById('search').addEventListener('input', function () {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(renderList, 150);
+});
 document.getElementById('stswitch').addEventListener('change', function() { showST = this.checked; renderList(); });
 document.getElementById('boards').addEventListener('change', function() { activeBoard = this.value; renderList(); });
 document.getElementById('dranges').addEventListener('change', function() { activeRange = this.value; renderList(); });
