@@ -1,6 +1,7 @@
 """东方财富公告抓取器（兼容原 cninfo_fetch.py 输出结构）。"""
 import datetime as dt
 import json
+import os
 import random
 import re
 import sys
@@ -8,12 +9,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 _PROJ = Path(__file__).resolve().parent.parent
 if str(_PROJ) not in sys.path:
     sys.path.insert(0, str(_PROJ))
 from path_util import data_root, is_github_actions
+from universe import merge_archive
 
 BASE = data_root()
 OUT = BASE / "cninfo_announce"
@@ -36,6 +39,19 @@ MAX_RETRIES = 5
 
 RANGE_PRESETS = {"3天": 3, "一周": 7, "半个月": 15, "一个月": 30,
                  "3d": 3, "1w": 7, "2w": 15, "1m": 30}
+
+
+def _env_int(name, default):
+    try:
+        return max(1, int(os.environ.get(name, str(default))))
+    except (TypeError, ValueError):
+        return default
+
+
+# 并发度。接口对突发请求会返回 403/429，_request_json 里有重试与退避兜底，
+# 这里取偏保守的值；需要更快可以用环境变量上调。
+DAY_WORKERS = _env_int("EASTMONEY_DAY_WORKERS", 4)
+PAGE_WORKERS = _env_int("EASTMONEY_PAGE_WORKERS", 3)
 
 
 def beijing_today():
@@ -231,27 +247,87 @@ def normalize(item):
     }
 
 
-def fetch_all_days(start, end):
-    cur = dt.date.fromisoformat(start)
-    last = dt.date.fromisoformat(end)
-    out = []
-    while cur <= last:
-        day = cur.strftime("%Y-%m-%d")
-        page = 1
-        rows_day = []
-        total = 0
-        print(f"  [东方财富] 抓取 {day} ...", flush=True)
+def _fetch_day(day):
+    """抓取单日全部页。
+
+    先取第 1 页：接口会同时返回 total_hits，据此一次性算出总页数并并发补齐。
+    只有拿不到 total 时才退回逐页串行探测（与旧实现一致）。
+    """
+    first, total = fetch_page(day, day, 1)
+    if not first:
+        return []
+    rows = list(first)
+    if len(first) < PAGE_SIZE:
+        return rows
+
+    pages = max(1, (int(total) + PAGE_SIZE - 1) // PAGE_SIZE) if total else 0
+
+    if pages > 1:
+        with ThreadPoolExecutor(max_workers=PAGE_WORKERS) as ex:
+            futs = [ex.submit(fetch_page, day, day, p) for p in range(2, pages + 1)]
+            for fut in as_completed(futs):
+                more, _ = fut.result()
+                rows.extend(more)
+        return rows
+
+    if pages == 0:
+        # 总数未知：逐页串行探测，直到出现不满页或空页。
+        page = 2
         while True:
-            rows, total = fetch_page(day, day, page)
-            rows_day.extend(rows)
-            if not rows:
+            more, total2 = fetch_page(day, day, page)
+            rows.extend(more)
+            if not more or len(more) < PAGE_SIZE:
                 break
-            if len(rows) < PAGE_SIZE or (total and page * PAGE_SIZE >= total):
+            if total2 and page * PAGE_SIZE >= int(total2):
                 break
             page += 1
-        print(f"    {day}: 获取 {len(rows_day)} 条", flush=True)
-        out.extend(rows_day)
+    return rows
+
+
+def fetch_all_days(start, end):
+    """按日并发抓取 [start, end] 区间内的全部公告。
+
+    原实现逐日、逐页串行：一次 90 天回填要发上千次串行请求，必然跑不完。
+
+    任一天失败仍然整体抛出：archive_current 会据此推进 last_end_date，
+    若容忍部分失败，下次增量就会跳过这些天，形成永久性数据缺口。
+    """
+    days = []
+    cur = dt.date.fromisoformat(start)
+    last = dt.date.fromisoformat(end)
+    while cur <= last:
+        days.append(cur.strftime("%Y-%m-%d"))
         cur += dt.timedelta(days=1)
+    if not days:
+        return []
+
+    print(
+        f"  [东方财富] 并发抓取 {len(days)} 天"
+        f"（{DAY_WORKERS} 天 × {PAGE_WORKERS} 页）...",
+        flush=True,
+    )
+    results, errors = {}, []
+    with ThreadPoolExecutor(max_workers=DAY_WORKERS) as ex:
+        futs = {ex.submit(_fetch_day, day): day for day in days}
+        for fut in as_completed(futs):
+            day = futs[fut]
+            try:
+                results[day] = fut.result()
+                print(f"    {day}: 获取 {len(results[day])} 条", flush=True)
+            except Exception as exc:
+                errors.append((day, exc))
+                print(f"    {day}: 失败 {exc}", flush=True)
+
+    if errors:
+        errors.sort(key=lambda x: x[0])
+        raise RuntimeError(
+            f"东方财富公告抓取失败 {len(errors)}/{len(days)} 天，"
+            f"最早失败 {errors[0][0]}: {errors[0][1]}"
+        )
+
+    out = []
+    for day in days:
+        out.extend(results.get(day, []))
     return out
 
 
@@ -287,23 +363,13 @@ def archive_current(filtered, end_date):
 
 
 def build_universe(days=90, end_date=None):
+    """合并近 days 天归档的筛选结果（去重）。
+
+    实现已统一到 universe.merge_archive，与 gen_dashboard / rule_summarize 共用。
+    这里刻意不并入当期 filtered：调用方要的是「历史已见集合」。
+    """
     end = end_date or beijing_today().strftime("%Y-%m-%d")
-    cutoff = (dt.date.fromisoformat(end) - dt.timedelta(days=days - 1)).strftime("%Y-%m-%d")
-    merged, seen = [], set()
-    if not ARCHIVE_DIR.exists():
-        return merged
-    for fp in sorted(ARCHIVE_DIR.glob("filtered_*.json")):
-        m = re.search(r"(\d{4}-\d{2}-\d{2})", fp.name)
-        if not m or not cutoff <= m.group(1) <= end:
-            continue
-        try:
-            arr = json.loads(fp.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        for a in arr:
-            if key_of(a) not in seen:
-                seen.add(key_of(a)); merged.append(a)
-    return merged
+    return merge_archive(ARCHIVE_DIR, days, end)
 
 
 def run_fetch(start=None, end=None, full_rescan=False, preset=None):
