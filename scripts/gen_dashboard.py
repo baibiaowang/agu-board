@@ -17,6 +17,7 @@ _PROJ = Path(__file__).resolve().parent.parent
 if str(_PROJ) not in sys.path:
     sys.path.insert(0, str(_PROJ))
 from path_util import data_root, resource_root, is_github_actions
+from universe import merge_archive
 
 BASE = data_root()          # 可写数据根（exe旁 / project根）
 RES = resource_root()       # 只读资源根（打包后 = _MEIPASS）
@@ -30,6 +31,17 @@ LIB_ECHARTS = RES / "reports" / "dashboard" / "lib" / "echarts.min.js"
 # 避免「请求 120 根、最后只留 60 根」这种白跑一半的情况。
 KLINE_BARS = 60
 
+# K 线产物按「股票代码取模」分成 KLINE_SHARDS 个分片文件（data_kline_N.js），
+# 前端首次选中某只股票时才加载它所属的那一片。分片号由代码本身决定，
+# 前端无需额外清单即可算出，manifest 只用于声明分片数量。
+# 改动前是单个 data_kline.js，已达 12.29 MB 且被 <script> 同步加载。
+KLINE_SHARDS = 16
+
+# 股票池保留窗口（天）。旧 data_list.js 里的股票若在窗口内没有任何公告就不再带入，
+# 其公告列表同样裁剪到窗口内。没有这条策略时股票池只增不减，
+# K 线产物与列表产物会单调膨胀。
+POOL_RETENTION_DAYS = 90
+
 # GitHub Actions: 尝试从 data_archive 恢复历史数据
 if is_github_actions():
     DATA_ARCHIVE = BASE / "data_archive"
@@ -42,56 +54,96 @@ if is_github_actions():
                 print("[GA] 恢复市值缓存从 data_archive")
             except Exception as e:
                 print(f"[GA] 恢复市值缓存失败: {e}")
-        # 恢复旧看板数据
+        # 恢复旧看板数据（K 线为分片文件，兼容早期归档里的单文件 data_kline.js）
         if (DATA_ARCHIVE / "data_list.js").exists():
             try:
                 import shutil
                 DASH.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(DATA_ARCHIVE / "data_list.js", DASH / "data_list.js")
-                shutil.copy2(DATA_ARCHIVE / "data_kline.js", DASH / "data_kline.js")
+                for src in sorted(DATA_ARCHIVE.glob("data_kline*.js")):
+                    shutil.copy2(src, DASH / src.name)
                 print("[GA] 恢复看板数据从 data_archive")
             except Exception as e:
                 print(f"[GA] 恢复看板数据失败: {e}")
 
-def build_universe(days=15, end_date=None):
-    """合并近 days 天各次运行归档的筛选结果（去重），用于看板「近半月相关股票」展示。"""
-    import datetime as _dt, re as _re
-    end = end_date or _dt.date.today().strftime("%Y-%m-%d")
+def shard_of(code) -> int:
+    """分片号。前端用同一公式算，因此分片不需要额外的映射表。"""
     try:
-        cutoff = (_dt.date.fromisoformat(end) - _dt.timedelta(days=days - 1)).strftime("%Y-%m-%d")
-    except Exception:
-        cutoff = "2000-01-01"
-    merged, seen = [], set()
-    files = sorted(ARCHIVE.glob("filtered_*.json")) if ARCHIVE.exists() else []
-    for fp in files:
-        m = _re.search(r"(\d{4}-\d{2}-\d{2})", fp.name)
-        if not m:
-            continue
-        d = m.group(1)
-        if d < cutoff or d > end:
-            continue
+        return int(str(code).strip()) % KLINE_SHARDS
+    except (TypeError, ValueError):
+        return 0
+
+
+def _parse_js_object(text: str) -> dict:
+    """从 `window.XXX = {...};` 中取出对象；解析失败返回空 dict。"""
+    try:
+        s0 = text.index("{")
+        e0 = text.rindex("}") + 1
+        obj = json.loads(text[s0:e0])
+        return obj if isinstance(obj, dict) else {}
+    except (ValueError, TypeError):
+        return {}
+
+
+def load_previous_klines(dash_dir):
+    """读取上一轮产出的 K 线（分片文件，兼容旧的单文件 data_kline.js）。
+
+    这是「K 线陈旧判定」的前提。改动前这里只读 data_list.js，而 data_list.js
+    并不包含 klines 字段，于是 _kline_stale() 对每只股票都返回 True，
+    整个股票池每一轮都会被判定为需要刷新——超时的放大器之一。
+    """
+    merged = {}
+    legacy = dash_dir / "data_kline.js"
+    if legacy.exists():
         try:
-            arr = json.loads(fp.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        for a in arr:
-            k = (a.get("code"), a.get("title"), a.get("time"))
-            if k in seen:
-                continue
-            seen.add(k)
-            merged.append(a)
-    cur = FILTERED
-    if cur.exists():
-        try:
-            for a in json.loads(cur.read_text(encoding="utf-8")):
-                k = (a.get("code"), a.get("title"), a.get("time"))
-                if k in seen:
-                    continue
-                seen.add(k)
-                merged.append(a)
-        except Exception:
+            merged.update(_parse_js_object(legacy.read_text(encoding="utf-8")))
+        except OSError:
             pass
+    for i in range(KLINE_SHARDS):
+        fp = dash_dir / f"data_kline_{i}.js"
+        if not fp.exists():
+            continue
+        try:
+            merged.update(_parse_js_object(fp.read_text(encoding="utf-8")))
+        except OSError:
+            continue
     return merged
+
+
+def write_kline_shards(dash_dir, kline_map) -> dict:
+    """写出分片 K 线 + manifest，并清掉旧的单文件产物。"""
+    buckets = {}
+    for code, klines in kline_map.items():
+        buckets.setdefault(shard_of(code), {})[code] = klines
+    manifest = {"shards": KLINE_SHARDS, "codes": len(kline_map), "bars": KLINE_BARS}
+    _atomic_write_text(
+        dash_dir / "data_kline_manifest.js",
+        "window.ANNO_KLINE_SHARDS = " + json.dumps(manifest, ensure_ascii=False) + ";\n",
+    )
+    for i in range(KLINE_SHARDS):
+        _atomic_write_text(
+            dash_dir / f"data_kline_{i}.js",
+            f"window.ANNO_KLINE_SHARD_{i} = "
+            + json.dumps(buckets.get(i, {}), ensure_ascii=False)
+            + ";\n",
+        )
+    # 旧的单文件产物已不再被 index.html 引用，留着只会被部署并归档，白占 12MB+。
+    (dash_dir / "data_kline.js").unlink(missing_ok=True)
+    return manifest
+
+
+def pool_retention_days() -> int:
+    """股票池保留窗口天数，可用 POOL_RETENTION_DAYS 覆盖。"""
+    try:
+        return max(1, int(os.environ.get("POOL_RETENTION_DAYS", str(POOL_RETENTION_DAYS))))
+    except (TypeError, ValueError):
+        return POOL_RETENTION_DAYS
+
+
+def retention_from(days: int) -> str:
+    """保留窗口起始日（本地日期，与 load_historical_data 的窗口口径一致）。"""
+    import datetime as _dt
+    return (_dt.date.today() - _dt.timedelta(days=days - 1)).strftime("%Y-%m-%d")
 
 def secid(code):
     """东财 secid：沪市(60/688/689)用 1. 前缀，深市(00/30)用 0. 前缀。
@@ -213,47 +265,12 @@ def is_noise(title):
     return False
 
 def load_historical_data(days=90):
-    """加载近N天所有历史数据（去重），用于累积显示。"""
-    import datetime as _dt, re as _re
-    end = _dt.date.today().strftime("%Y-%m-%d")
-    try:
-        cutoff = (_dt.date.fromisoformat(end) - _dt.timedelta(days=days - 1)).strftime("%Y-%m-%d")
-    except Exception:
-        cutoff = "2000-01-01"
-    
-    merged, seen = [], set()
-    files = sorted(ARCHIVE.glob("filtered_*.json")) if ARCHIVE.exists() else []
-    for fp in files:
-        m = _re.search(r"(\d{4}-\d{2}-\d{2})", fp.name)
-        if not m:
-            continue
-        d = m.group(1)
-        if d < cutoff or d > end:
-            continue
-        try:
-            arr = json.loads(fp.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        for a in arr:
-            k = (a.get("code"), a.get("title"), a.get("time"))
-            if k in seen:
-                continue
-            seen.add(k)
-            merged.append(a)
-    
-    # 合并当期
-    cur = FILTERED
-    if cur.exists():
-        try:
-            for a in json.loads(cur.read_text(encoding="utf-8")):
-                k = (a.get("code"), a.get("title"), a.get("time"))
-                if k in seen:
-                    continue
-                seen.add(k)
-                merged.append(a)
-        except Exception:
-            pass
-    return merged
+    """加载近 N 天归档 + 当期 filtered 的全部公告（去重），用于累积显示。
+
+    实现已统一到 universe.merge_archive：原先本文件与 rule_summarize.py、
+    eastmoney_fetch.py 各有一份同名逻辑，三份在窗口边界与容错上并不一致。
+    """
+    return merge_archive(ARCHIVE, days, None, extra_files=[FILTERED])
 
 def main():
     if not FILTERED.exists():
@@ -302,8 +319,11 @@ def main():
             "is_st": bool(x.get("is_st")),
         })
 
-    # 拉K线：已存在的股票沿用旧 data.js 的K线（不重复请求），仅新增股票拉取
-    # 同时合并旧数据中的历史公告，确保增量更新不丢失历史
+    # 旧数据有两个来源，缺一不可：
+    #   data_list.js       → 列表字段（名称/板块/类别/公告）
+    #   data_kline_N.js    → 上一轮产出的 K 线
+    # 只读 data_list.js 是原先的写法，而该文件并不含 klines 字段，
+    # 于是下面的 _kline_stale() 对每只股票都返回 True，整个股票池每轮都被判为需刷新。
     old_data = {}
     old_js_path = DASH / "data_list.js"
     if old_js_path.exists():
@@ -314,28 +334,55 @@ def main():
             old_data = {o["code"]: o for o in json.loads(old_content[s0:e0])}
         except Exception:
             old_data = {}
+    prev_klines = load_previous_klines(DASH)
+    for code, klines in prev_klines.items():
+        old_data.setdefault(code, {"code": code})["klines"] = klines
+    if prev_klines:
+        print(f"复用上一轮 K 线：{len(prev_klines):,} 只")
 
-    # 合并历史公告：将旧 data.js 中的公告合并到当前聚合结果
-    # 这样即使某天没有新公告，历史公告仍然保留
+    # 合并历史公告：将旧 data_list.js 中的公告合并到当前聚合结果，
+    # 这样即使某天没有新公告，历史公告仍然保留。
+    #
+    # 同时施加股票池保留窗口：窗口内没有任何公告的旧股票不再带入，
+    # 其公告列表也裁剪到窗口内。没有这条策略时股票池只增不减，
+    # K 线产物与列表产物会单调膨胀。
+    retain_days = pool_retention_days()
+    retain_from = retention_from(retain_days)
+
+    def _recent(anns):
+        return [a for a in (anns or []) if str(a.get("date") or "") >= retain_from]
+
+    dropped_stocks = trimmed_anns = carried_stocks = 0
     for code, old_item in old_data.items():
+        old_anns = _recent(old_item.get("announcements"))
+        trimmed_anns += len(old_item.get("announcements") or []) - len(old_anns)
         if code not in agg:
-            # 旧股票今天没有新公告，保留旧数据（包括K线和公告）
+            if not old_anns:
+                # 窗口内没有任何公告：既不该出现在看板上，也不再带入它的 K 线。
+                dropped_stocks += 1
+                continue
             agg[code] = {
                 "code": code,
                 "name": old_item.get("name", ""),
                 "category": old_item.get("category", "其他"),
                 "board": old_item.get("board", ""),
                 "is_st": old_item.get("is_st", False),
-                "announcements": list(old_item.get("announcements", []))
+                "announcements": old_anns,
             }
             order.append(code)
+            carried_stocks += 1
         else:
             # 合并旧公告到新聚合结果（去重）
             existing_dates = {(a.get("date"), a.get("title")) for a in agg[code]["announcements"]}
-            for old_ann in old_item.get("announcements", []):
+            for old_ann in old_anns:
                 key = (old_ann.get("date"), old_ann.get("title"))
                 if key not in existing_dates:
                     agg[code]["announcements"].append(old_ann)
+    print(
+        f"股票池保留窗口 {retain_days} 天（{retain_from} 起）："
+        f"淘汰窗口外股票 {dropped_stocks} 只，裁剪过期公告 {trimmed_anns} 条，"
+        f"沿用窗口内历史股票 {carried_stocks} 只"
+    )
 
     # 拉K线：新增股票全拉；存量股票若K线最后日期早于最近交易日也重新拉取（避免K线陈旧）
     # 基准必须是「最近交易日」而不是自然日：K 线最后一根只可能落在交易日，用
@@ -459,7 +506,8 @@ def main():
     all_dates = [a["date"] for s in data for a in s["announcements"] if a["date"]]
     date_range = f"{min(all_dates)} ~ {max(all_dates)}" if all_dates else ""
 
-    # 拆分写数据：列表数据(文字+公告) + K线数据(按code)，实现文字先加载、K线懒加载
+    # 拆分写数据：列表数据(文字+公告) 一次加载，K 线按代码分成 KLINE_SHARDS 个分片，
+    # 前端首次选中某只股票时才加载对应分片（真正的按需加载，而不是注释里声称的）。
     DASH.mkdir(parents=True, exist_ok=True)
     list_data = []
     kline_map = {}
@@ -474,10 +522,9 @@ def main():
         })
         kline_map[s["code"]] = s.get("klines", [])
     js_list = "window.ANNO_LIST = " + json.dumps(list_data, ensure_ascii=False) + ";\n"
-    js_kline = "window.ANNO_KLINE = " + json.dumps(kline_map, ensure_ascii=False) + ";\n"
     try:
         _atomic_write_text(DASH / "data_list.js", js_list)
-        _atomic_write_text(DASH / "data_kline.js", js_kline)
+        manifest = write_kline_shards(DASH, kline_map)
     except Exception as e:
         raise RuntimeError(f"写入 data 文件失败（可能是文件被浏览器占用，或目录无写权限）：{e}") from e
 
@@ -488,7 +535,13 @@ def main():
             archive_dir.mkdir(parents=True, exist_ok=True)
             import shutil
             shutil.copy2(DASH / "data_list.js", archive_dir / "data_list.js")
-            shutil.copy2(DASH / "data_kline.js", archive_dir / "data_kline.js")
+            for i in range(KLINE_SHARDS):
+                src = DASH / f"data_kline_{i}.js"
+                if src.exists():
+                    shutil.copy2(src, archive_dir / src.name)
+            shutil.copy2(DASH / "data_kline_manifest.js", archive_dir / "data_kline_manifest.js")
+            # 归档里遗留的单文件产物会让下一轮恢复出 12MB 的陈旧副本，一并清掉。
+            (archive_dir / "data_kline.js").unlink(missing_ok=True)
         except Exception:
             pass
 
@@ -510,6 +563,10 @@ def main():
         raise RuntimeError(f"写入 dashboard.html 失败（可能是文件被浏览器占用，请关闭已打开的同名页面后重试）：{e}") from e
 
     print(f"看板更新完成: {len(data)} 只股票, 日期范围: {date_range}")
+    print(
+        f"  K线分片: {manifest['shards']} 片 / {manifest['codes']:,} 只 / 每只 {manifest['bars']} 根；"
+        f"首屏只加载 data_list.js，选中股票时才拉对应分片"
+    )
     print(f"  无K线数据: {[s['code'] for s in data if not s['klines']]}")
 
 if __name__ == "__main__":

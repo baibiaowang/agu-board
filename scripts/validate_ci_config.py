@@ -30,8 +30,14 @@ def main() -> None:
     db_backend = ROOT / "scripts" / "board_db.py"
     db_runner = ROOT / "scripts" / "gen_dashboard_incremental.py"
     db_test = ROOT / "scripts" / "sqlite_concurrency_smoke.py"
+    index_html = ROOT / "reports" / "dashboard" / "index.html"
+    universe_mod = ROOT / "universe.py"
+    gen_dashboard = ROOT / "scripts" / "gen_dashboard.py"
+    fetch_script = ROOT / "scripts" / "eastmoney_fetch.py"
+    rule_script = ROOT / "mainboard_tool" / "rule_summarize.py"
 
-    for path in (production, manual, smoke, db_backend, db_runner, db_test):
+    for path in (production, manual, smoke, db_backend, db_runner, db_test,
+                 index_html, universe_mod, gen_dashboard, fetch_script, rule_script):
         if not path.exists():
             raise SystemExit(f"[FAIL] missing required file: {path.relative_to(ROOT)}")
 
@@ -80,6 +86,36 @@ def main() -> None:
             raise SystemExit(f"[FAIL] {path.relative_to(ROOT)} still references deprecated Node 20 action versions")
         if "actions/upload-artifact@v4" in content:
             raise SystemExit(f"[FAIL] {path.relative_to(ROOT)} still references upload-artifact@v4")
+
+    # ---- K 线分片懒加载契约 ----
+    # 产物是 data_kline_manifest.js + data_kline_N.js，前端首次选中股票时才加载对应分片。
+    for path in (production, manual):
+        require(path, "data_kline_manifest.js", "K-line shard manifest handling")
+        require(path, "data_kline*.js", "K-line shard glob restore")
+        require(path, "ANNO_KLINE_SHARD", "K-line shard global")
+        if 'src="data_kline.js"' in read(path):
+            raise SystemExit(f"[FAIL] {path.relative_to(ROOT)} still references the monolithic data_kline.js")
+
+    require(index_html, "data_kline_manifest.js", "dashboard manifest script tag")
+    require(index_html, "function ensureShard", "dashboard on-demand shard loader")
+    if 'src="data_kline.js"' in read(index_html):
+        raise SystemExit("[FAIL] dashboard still sync-loads the monolithic data_kline.js")
+    print("[OK] dashboard loads K-lines on demand via shards")
+
+    # ---- 股票池保留窗口 ----
+    require(gen_dashboard, "POOL_RETENTION_DAYS", "stock pool retention window")
+    require(gen_dashboard, "def pool_retention_days", "retention window resolver")
+
+    # ---- 共享 build_universe：不允许再出现第二份实现 ----
+    require(universe_mod, "def merge_archive", "shared archive merger")
+    for path in (gen_dashboard, fetch_script, rule_script):
+        require(path, "from universe import merge_archive", "shared archive merger import")
+        if "def build_universe" in read(path) and "merge_archive(" not in read(path):
+            raise SystemExit(f"[FAIL] {path.relative_to(ROOT)} re-implements build_universe")
+
+    # ---- 公告抓取必须并发 ----
+    require(fetch_script, "ThreadPoolExecutor", "concurrent announcement fetch")
+    require(fetch_script, "def _fetch_day", "per-day page fan-out")
 
     print("=== CI configuration validation PASSED ===")
 

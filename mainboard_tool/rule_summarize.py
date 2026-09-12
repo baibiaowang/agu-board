@@ -14,6 +14,7 @@ _PROJ = Path(__file__).resolve().parent.parent
 if str(_PROJ) not in sys.path:
     sys.path.insert(0, str(_PROJ))
 from path_util import data_root, resource_root
+from universe import merge_archive
 
 BASE = data_root()
 FILTERED = BASE / "cninfo_announce_filtered.json"
@@ -112,44 +113,12 @@ def clean(t):
 
 
 def build_universe(days=15, end_date=None):
-    """合并近 days 天各次运行归档的筛选结果（去重），用于「近半月相关股票」展示。"""
-    import datetime as _dt, re as _re
-    ARCH = BASE / "cninfo_announce_archive"
-    end = end_date or _dt.date.today().strftime("%Y-%m-%d")
-    try:
-        cutoff = (_dt.date.fromisoformat(end) - _dt.timedelta(days=days - 1)).strftime("%Y-%m-%d")
-    except Exception:
-        cutoff = "2000-01-01"
-    merged, seen = [], set()
-    files = sorted(ARCH.glob("filtered_*.json")) if ARCH.exists() else []
-    for fp in files:
-        m = _re.search(r"(\d{4}-\d{2}-\d{2})", fp.name)
-        if not m:
-            continue
-        d = m.group(1)
-        if d < cutoff or d > end:
-            continue
-        try:
-            arr = json.loads(fp.read_text(encoding="utf-8"))
-        except Exception:
-            continue
-        for a in arr:
-            k = (a.get("code"), a.get("title"), a.get("time"))
-            if k in seen:
-                continue
-            seen.add(k)
-            merged.append(a)
-    if FILTERED.exists():
-        try:
-            for a in json.loads(FILTERED.read_text(encoding="utf-8")):
-                k = (a.get("code"), a.get("title"), a.get("time"))
-                if k in seen:
-                    continue
-                seen.add(k)
-                merged.append(a)
-        except Exception:
-            pass
-    return merged
+    """合并近 days 天归档 + 当期 filtered 的筛选结果（去重），用于「近半月相关股票」展示。
+
+    实现已统一到 universe.merge_archive，与 gen_dashboard / eastmoney_fetch 共用一份，
+    避免同一份归档在不同环节算出不同结果。
+    """
+    return merge_archive(BASE / "cninfo_announce_archive", days, end_date, extra_files=[FILTERED])
 
 
 def universe_summary(merged, days=15):

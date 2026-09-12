@@ -29,6 +29,49 @@ def _run_checked(cmd: list[str]) -> None:
     subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
+def _zstd_module():
+    try:
+        import zstandard  # noqa: PLC0415 - 可选依赖，按需导入
+    except ImportError:
+        return None
+    return zstandard
+
+
+def _missing_zstd() -> RuntimeError:
+    return RuntimeError(
+        "缺少 zstd：请安装 zstd 命令行工具，或执行 pip install zstandard 以启用 Python 兜底。"
+    )
+
+
+def compress_zst(src: Path, dst: Path, level: int = 1) -> None:
+    """压缩为 zstd。优先用 zstd 二进制（CI runner 已预装），没有则退回 zstandard 模块。
+
+    原先只调用二进制，本地开发机没装 zstd 时整条流水线会在最后一步失败。
+    """
+    try:
+        _run_checked(["zstd", f"-{level}", "-q", "-f", str(src), "-o", str(dst)])
+        return
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        zstd = _zstd_module()
+        if zstd is None:
+            raise _missing_zstd() from exc
+    with src.open("rb") as fi, dst.open("wb") as fo:
+        zstd.ZstdCompressor(level=level).copy_stream(fi, fo)
+
+
+def decompress_zst(src: Path, dst: Path) -> None:
+    """解压 zstd，与 compress_zst 同样优先走二进制。"""
+    try:
+        _run_checked(["zstd", "-q", "-d", "-f", str(src), "-o", str(dst)])
+        return
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        zstd = _zstd_module()
+        if zstd is None:
+            raise _missing_zstd() from exc
+    with src.open("rb") as fi, dst.open("wb") as fo:
+        zstd.ZstdDecompressor().copy_stream(fi, fo)
+
+
 def restore_seed_if_needed() -> bool:
     """Restore board.db from the persistent Pages copy or one-time seed."""
     if DB_PATH.exists() and DB_PATH.stat().st_size > 1024:
@@ -46,7 +89,7 @@ def restore_seed_if_needed() -> bool:
         tmp = DB_PATH.with_suffix(DB_PATH.suffix + ".tmp")
         try:
             if src.suffix == ".zst":
-                _run_checked(["zstd", "-q", "-d", "-f", str(src), "-o", str(tmp)])
+                decompress_zst(src, tmp)
             else:
                 with gzip.open(src, "rb") as rf, open(tmp, "wb") as wf:
                     shutil.copyfileobj(rf, wf, length=1024 * 1024)
@@ -229,7 +272,7 @@ def persist_to_site(con: sqlite3.Connection, site_archive: Path) -> Path:
     site_archive.mkdir(parents=True, exist_ok=True)
     out = site_archive / "board.db.zst"
     tmp = out.with_suffix(out.suffix + ".tmp")
-    _run_checked(["zstd", "-1", "-q", "-f", str(DB_PATH), "-o", str(tmp)])
+    compress_zst(DB_PATH, tmp, level=1)
     tmp.replace(out)
     print(f"[DB] 已持久化：{out} ({out.stat().st_size:,} bytes)")
     return out
