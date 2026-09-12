@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>A股公告看板（2026-06-26 ~ 2026-09-12）</title>
+<title>A股公告看板（2026-06-15 ~ 2026-09-12）</title>
 <style>
   :root {
     --bg: #f5f6fa;
@@ -145,17 +145,54 @@
       <div id="p_anns" style="display:none;"></div>
     </div>
     <div id="chart"><div class="empty">👈 从左侧选择一只股票</div></div>
-    <div class="hint">列表指标:<b>今</b>=当日涨跌 · <b>公告</b>=公告发布后累计涨跌 · <b>5日</b>=近5日累计涨跌(红涨绿跌)|K线:近120交易日,橙色📌=公告发布日,悬停查看公告</div>
+    <div class="hint">列表指标:<b>今</b>=当日涨跌 · <b>公告</b>=公告发布后累计涨跌 · <b>5日</b>=近5日累计涨跌(红涨绿跌)|K线:近60交易日,橙色📌=公告发布日,悬停查看公告</div>
   </div>
 </div>
 
 <script src="lib/echarts.min.js"></script>
 <script src="data_list.js"></script>
-<script src="data_kline.js" defer></script>
+<script src="data_kline_manifest.js"></script>
 <script>
 const RED = '#e6343a', GREEN = '#0aa858';
 let all = (window.ANNO_LIST || []);
-function getKline(code){const m=window.ANNO_KLINE||{};return m[code]||[];}
+
+// K 线按「股票代码取模」分片存放（data_kline_N.js），首次选中某只股票时才加载它所属的那一片。
+// 改动前是单个 data_kline.js（12.29 MB）被 <script> 同步加载，首屏必须等它下完。
+const KLINE_SHARDS = (window.ANNO_KLINE_SHARDS && window.ANNO_KLINE_SHARDS.shards) || 16;
+const _shardData = {};   // shard -> {code: klines}
+const _shardState = {};  // shard -> 'loading' | 'ready' | 'error'
+const _shardWait = {};   // shard -> 等待回调
+function shardOf(code) {
+  const n = parseInt(code, 10);
+  if (isNaN(n)) return 0;
+  return ((n % KLINE_SHARDS) + KLINE_SHARDS) % KLINE_SHARDS;
+}
+function shardReady(sh) { return _shardState[sh] === 'ready'; }
+function ensureShard(sh, cb) {
+  if (_shardState[sh] === 'ready') { cb(); return; }
+  (_shardWait[sh] = _shardWait[sh] || []).push(cb);
+  if (_shardState[sh] === 'loading') return;
+  _shardState[sh] = 'loading';
+  const flush = function () {
+    const wait = _shardWait[sh] || [];
+    _shardWait[sh] = [];
+    wait.forEach(function (f) { try { f(); } catch (e) { /* 单个回调失败不影响其他 */ } });
+  };
+  const el = document.createElement('script');
+  el.src = 'data_kline_' + sh + '.js';
+  el.onload = function () {
+    _shardData[sh] = window['ANNO_KLINE_SHARD_' + sh] || {};
+    _shardState[sh] = 'ready';
+    flush();
+  };
+  el.onerror = function () { _shardState[sh] = 'error'; flush(); };
+  document.head.appendChild(el);
+}
+function getKline(code) {
+  const sh = shardOf(code);
+  const m = _shardData[sh] || window['ANNO_KLINE_SHARD_' + sh] || {};
+  return m[code] || [];
+}
 let activeCat = '并购重组', activeCode = null;
 let activeBoard = '主板';  // 默认只显示主板
 let showST = false;        // 默认排除 ST
@@ -179,10 +216,16 @@ const MIN_DATE = ALL_DATES.length ? ALL_DATES[0] : '';
   }
 })();
 function pad2(n) { return String(n).padStart(2, '0'); }
+// filtered() 会对每只股票都调用一次 cutoff()，股票上千时每次都 new Date() 是纯浪费。
+// MAX_DATE 在页面生命周期内不变，这里按天数记忆化。
+const _cutoffCache = {};
 function cutoff(n) {
+  if (n in _cutoffCache) return _cutoffCache[n];
   const d = new Date(MAX_DATE + 'T00:00:00');
   d.setDate(d.getDate() - n);
-  return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  const v = d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  _cutoffCache[n] = v;
+  return v;
 }
 function renderRanges() {
   const ranges = [['', '全部时间'], ['3d', '近3天'], ['7d', '一周'], ['15d', '半月'], ['30d', '一个月'], ['30d+', '一个月之前']];
@@ -315,6 +358,11 @@ function select(code) {
     tl.style.display = 'none';
   }
   drawChart(s);
+  // 该股票所属分片尚未加载时按需拉取；加载完成后重绘（前提是期间没有切换股票）。
+  const _sh = shardOf(code);
+  if (!shardReady(_sh)) {
+    ensureShard(_sh, function () { if (activeCode === code) drawChart(s); });
+  }
 }
 
 function drawChart(s) {
@@ -324,7 +372,11 @@ function drawChart(s) {
   el.innerHTML = '';
   chart = echarts.init(el);
   const k = getKline(s.code);
-  if (!k.length) { el.innerHTML = '<div class="empty">K线数据加载中…</div>'; return; }
+  if (!k.length) {
+    const _sh = shardOf(s.code);
+    el.innerHTML = '<div class="empty">' + (_shardState[_sh] === 'error' ? 'K线分片加载失败' : 'K线数据加载中…') + '</div>';
+    return;
+  }
   const dates = k.map(x => x[0]);
   const ohlc = k.map(x => [x[1], x[2], x[4], x[3]]); // open, close, low, high
   const vols = k.map(x => x[5]);
@@ -428,14 +480,22 @@ function drawChart(s) {
     ],
   };
   chart.setOption(option);
-  window.addEventListener('resize', () => chart && chart.resize());
 }
+
+// resize 监听只注册一次。原先写在 drawChart() 内部，每选一只股票就多挂一个监听器，
+// 选过 N 只之后每次窗口变化都会触发 N 次 chart.resize()。
+window.addEventListener('resize', function () { if (chart) chart.resize(); });
 
 // init
 renderCats();
 renderBoards();
 renderRanges();
-document.getElementById('search').addEventListener('input', renderList);
+// 股票上千只时，每敲一个字符都全量重建 innerHTML 会明显卡顿，这里做 150ms 防抖。
+let _searchTimer = null;
+document.getElementById('search').addEventListener('input', function () {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(renderList, 150);
+});
 document.getElementById('stswitch').addEventListener('change', function() { showST = this.checked; renderList(); });
 document.getElementById('boards').addEventListener('change', function() { activeBoard = this.value; renderList(); });
 document.getElementById('dranges').addEventListener('change', function() { activeRange = this.value; renderList(); });
