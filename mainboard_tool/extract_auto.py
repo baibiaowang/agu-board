@@ -49,6 +49,10 @@ PDF_BASE = "https://pdf.dfcfw.com/pdf/H2_{art_code}_1.pdf"
 CONTENT_API = "https://np-cnotice-stock.eastmoney.com/api/content/ann"
 MAX_RETRIES = 4
 
+# 正文最长保留字符数：公告正文里偶尔会内嵌大段脚本/样式/JSON，
+# 即使正则清洗过，也再兜一层上限，避免下游 extract_numbers 在超大文本上跑正则。
+MAX_TEXT_CHARS = 200_000
+
 
 def _safe_name(name):
     return re.sub(r"[\\/:*?\"<>|]", "", str(name or "")).strip()[:80] or "公告"
@@ -153,14 +157,19 @@ def _content_text(x):
             if not content:
                 raise ValueError("东方财富正文接口没有 notice_content")
             # 正文通常为 HTML；转成纯文本供现有规则总结器使用。
-            text = re.sub(r"<script[\\s\\S]*?</script>", " ", content, flags=re.I)
-            text = re.sub(r"<style[\\s\\S]*?</style>", " ", text, flags=re.I)
-            text = re.sub(r"<br\\s*/?>", "\n", text, flags=re.I)
+            # 注意：这些是 raw string，反斜杠必须只写一个。写成 r"<script[\\s\\S]*?</script>"
+            # 时正则实际匹配的是 "\"、"s"、"S" 三个字符，script/style 块永远删不掉，
+            # 会把整段脚本漏进正文并显著放大 txt 体积。
+            text = re.sub(r"<script[\s\S]*?</script>", " ", content, flags=re.I)
+            text = re.sub(r"<style[\s\S]*?</style>", " ", text, flags=re.I)
+            text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
             text = re.sub(r"</(?:p|div|tr|li|h[1-6])>", "\n", text, flags=re.I)
             text = re.sub(r"<[^>]+>", " ", text)
             text = html.unescape(text)
             text = re.sub(r"[ \t\r\f\v]+", " ", text)
             text = re.sub(r"\n{3,}", "\n\n", text).strip()
+            if len(text) > MAX_TEXT_CHARS:
+                text = text[:MAX_TEXT_CHARS]
             return (title + "\n" + text).strip()
         except Exception as e:
             last_err = e
@@ -177,6 +186,8 @@ def _extract_text(pdf_path, txt_path):
     text = re.sub(r"\s+", " ", "\n".join(parts)).strip()
     if not text:
         raise ValueError("PDF没有可提取文本")
+    if len(text) > MAX_TEXT_CHARS:
+        text = text[:MAX_TEXT_CHARS]
     txt_path.write_text(text, encoding="utf-8")
     return len(text), len(reader.pages)
 

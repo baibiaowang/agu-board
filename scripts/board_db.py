@@ -110,26 +110,36 @@ def kline_payload(con: sqlite3.Connection, code: str, limit: int = 120) -> dict:
 
 
 def upsert_kline_payload(con: sqlite3.Connection, code: str, payload: dict) -> int:
+    """Write one stock's K-line batch and return the number of rows written.
+
+    Rows are validated first and then written with a single ``executemany``.
+    The previous per-row ``con.execute`` (plus a ``con.commit()`` per stock in
+    the caller) made a large incremental batch — hundreds of stocks x 120 bars —
+    dominate the run time, which is what pushed the dashboard step over its
+    30-minute GitHub Actions limit.
+    """
     rows = (payload.get("data") or {}).get("klines") or []
-    added = 0
+    params = []
     for item in rows:
         parts = str(item).split(",")
         if len(parts) < 6:
             continue
         try:
             d, op, close, high, low, volume = parts[:6]
-            con.execute(
-                "INSERT INTO klines(code,date,open,high,low,close,volume,change_pct) "
-                "VALUES(?,?,?,?,?,?,?,?) "
-                "ON CONFLICT(code,date) DO UPDATE SET "
-                "open=excluded.open, high=excluded.high, low=excluded.low, "
-                "close=excluded.close, volume=excluded.volume",
-                (code, d, float(op), float(high), float(low), float(close), float(volume), None),
-            )
-            added += 1
+            params.append((code, d, float(op), float(high), float(low), float(close), float(volume), None))
         except (TypeError, ValueError):
             continue
-    return added
+    if not params:
+        return 0
+    con.executemany(
+        "INSERT INTO klines(code,date,open,high,low,close,volume,change_pct) "
+        "VALUES(?,?,?,?,?,?,?,?) "
+        "ON CONFLICT(code,date) DO UPDATE SET "
+        "open=excluded.open, high=excluded.high, low=excluded.low, "
+        "close=excluded.close, volume=excluded.volume",
+        params,
+    )
+    return len(params)
 
 
 def market_cap(con: sqlite3.Connection, code: str) -> float:
