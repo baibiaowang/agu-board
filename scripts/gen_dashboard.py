@@ -17,7 +17,7 @@ _PROJ = Path(__file__).resolve().parent.parent
 if str(_PROJ) not in sys.path:
     sys.path.insert(0, str(_PROJ))
 from path_util import data_root, resource_root, is_github_actions
-from universe import merge_archive
+from universe import display_title, merge_archive, norm_title
 
 BASE = data_root()          # 可写数据根（exe旁 / project根）
 RES = resource_root()       # 只读资源根（打包后 = _MEIPASS）
@@ -41,6 +41,13 @@ KLINE_SHARDS = 16
 # 其公告列表同样裁剪到窗口内。没有这条策略时股票池只增不减，
 # K 线产物与列表产物会单调膨胀。
 POOL_RETENTION_DAYS = 90
+
+# 每只股票在看板上保留的公告条数上限；0 = 不限制（默认，保持既有行为）。
+# 这是给「股票池并入数据库」准备的安全阀：库内 90 天窗口有约 9 万条公告，
+# 其中约 79% 是 classify() 未命中的例行公告，若不加筛选全量输出，
+# data_list.js 会从 2.5 MB 涨到 14 MB（且是同步 <script> 加载），
+# gh-pages 分支一年会膨胀到 2 GB 以上。
+ANNO_MAX_PER_STOCK = 0
 
 # GitHub Actions: 尝试从 data_archive 恢复历史数据
 if is_github_actions():
@@ -144,6 +151,33 @@ def retention_from(days: int) -> str:
     """保留窗口起始日（本地日期，与 load_historical_data 的窗口口径一致）。"""
     import datetime as _dt
     return (_dt.date.today() - _dt.timedelta(days=days - 1)).strftime("%Y-%m-%d")
+
+
+def announcement_limit() -> int:
+    """每只股票保留的公告条数上限，可用 ANNO_MAX_PER_STOCK 覆盖；0 表示不限制。"""
+    try:
+        return max(0, int(os.environ.get("ANNO_MAX_PER_STOCK", str(ANNO_MAX_PER_STOCK))))
+    except (TypeError, ValueError):
+        return ANNO_MAX_PER_STOCK
+
+
+def normalize_anns(anns, name=""):
+    """归一化从上一轮 data_list.js 继承的公告列表。
+
+    上一轮产物里的标题可能带「简称:」前缀或用全角标点，与本轮来源（归档不带前缀、
+    库内带前缀）写法不一致。不归一化就会把同一条公告算成两条并排显示——实测会
+    多出上百条重复。这里同时做两件事：按归一化标题去重、输出标题统一剥前缀。
+    """
+    out, seen = [], set()
+    for a in anns or []:
+        if not isinstance(a, dict):
+            continue
+        key = (a.get("date"), norm_title(a.get("title"), name))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({**a, "title": display_title(a.get("title"), name)})
+    return out
 
 def secid(code):
     """东财 secid：沪市(60/688/689)用 1. 前缀，深市(00/30)用 0. 前缀。
@@ -272,6 +306,17 @@ def load_historical_data(days=90):
     """
     return merge_archive(ARCHIVE, days, None, extra_files=[FILTERED])
 
+
+def load_universe(days=90):
+    """看板股票池来源。
+
+    默认只用归档目录。gen_dashboard_incremental 在拿到 SQLite 基线后会把它
+    替换成「归档 ∪ 库」的实现——归档目录只有 08-25 起十几个 filtered_*.json，
+    而库里有约 90 天的公告；实测并集比单用归档多 216 只股票（+5.5%），
+    产物只增加约 0.4 MB。库不可用时这里保持原行为，不做任何额外假设。
+    """
+    return load_historical_data(days)
+
 def main():
     if not FILTERED.exists():
         print("未找到 cninfo_announce_filtered.json，请先运行 scripts/cninfo_fetch.py")
@@ -281,16 +326,19 @@ def main():
     
     # 累积模式：加载近90天所有历史数据（去重），实现多期公告同时显示
     # 这样看板可以展示更长时间跨度的公告事件
-    universe = load_historical_data(days=90)
+    # 来源可被 gen_dashboard_incremental 替换为「归档 ∪ 库」（见 load_universe）。
+    universe = load_universe(days=90)
     if universe:
         print(f"看板范围：当期 {len(filtered)} 条 + 近90天历史累积 {len(universe)} 条")
     else:
         universe = filtered
     
-    # 去重 + 过滤例行噪声
+    # 去重 + 过滤例行噪声。
+    # 去重键用归一化标题：股票池可能同时来自归档与数据库，两侧标题写法不同
+    # （库内带「简称:」前缀、标点可能是半角），用原始标题比对会漏掉重复。
     seen, items = set(), []
     for x in universe:
-        key = (x.get("code"), x.get("title"))
+        key = (x.get("code"), norm_title(x.get("title"), x.get("name")))
         if key in seen:
             continue
         seen.add(key)
@@ -361,22 +409,31 @@ def main():
                 # 窗口内没有任何公告：既不该出现在看板上，也不再带入它的 K 线。
                 dropped_stocks += 1
                 continue
+            _nm = old_item.get("name", "")
             agg[code] = {
                 "code": code,
-                "name": old_item.get("name", ""),
+                "name": _nm,
                 "category": old_item.get("category", "其他"),
                 "board": old_item.get("board", ""),
                 "is_st": old_item.get("is_st", False),
-                "announcements": old_anns,
+                # 整包继承，同样要归一化：上一轮产物内部就可能存在带前缀与不带前缀的
+                # 两种写法，不归一化会原样带上重复。
+                "announcements": normalize_anns(old_anns, _nm),
             }
             order.append(code)
             carried_stocks += 1
         else:
-            # 合并旧公告到新聚合结果（去重）
-            existing_dates = {(a.get("date"), a.get("title")) for a in agg[code]["announcements"]}
-            for old_ann in old_anns:
-                key = (old_ann.get("date"), old_ann.get("title"))
-                if key not in existing_dates:
+            # 合并旧公告到新聚合结果（去重）。
+            # 键同样必须用归一化标题：上一轮 data_list.js 里的写法可能是
+            # 「简称:标题」或全角标点，与本轮来源不一致，用原始标题比对会把
+            # 同一条公告重复带入（实测会多出上百条并排重复）。
+            _nm = agg[code].get("name", "")
+            existing = {(a.get("date"), norm_title(a.get("title"), _nm))
+                        for a in agg[code]["announcements"]}
+            for old_ann in normalize_anns(old_anns, _nm):
+                key = (old_ann.get("date"), norm_title(old_ann.get("title"), _nm))
+                if key not in existing:
+                    existing.add(key)
                     agg[code]["announcements"].append(old_ann)
     print(
         f"股票池保留窗口 {retain_days} 天（{retain_from} 起）："
@@ -470,9 +527,9 @@ def main():
             klines = old_data[code]["klines"]  # 拉取失败回退旧K线
             name_east = old_data[code].get("name_east", "")
             mv = old_data[code].get("market_cap", 0)
-        # 保留所有历史公告（不限于4条），按日期排序
-        anns = sorted([a for a in s["announcements"] if a["date"]], key=lambda a: a["date"])
-        reason = anns[-1]["title"] if anns else "入选本期公告"
+        # 保留所有历史公告，按日期排序
+        anns_all = sorted([a for a in s["announcements"] if a["date"]], key=lambda a: a["date"])
+        reason = anns_all[-1]["title"] if anns_all else "入选本期公告"
         # 截断到最近 KLINE_BARS 个交易日（减少前端下载与渲染数据量）
         if len(klines) > KLINE_BARS:
             klines = klines[-KLINE_BARS:]
@@ -484,15 +541,22 @@ def main():
         if len(klines) >= 6:
             _p5 = klines[-6][2]
             chg5 = round((_c - _p5) / _p5 * 100, 2) if _p5 else 0
-        if klines and anns:
+        # chg_ann 用完整公告列表计算，保持与加截断之前完全一致的结果
+        if klines and anns_all:
             _di = {k[0]: i for i, k in enumerate(klines)}
             _idx = -1
-            for _a in anns:
+            for _a in anns_all:
                 if _a["date"] in _di:
                     _idx = _di[_a["date"]]; break
             if _idx >= 0:
                 _base = klines[_idx-1][2] if _idx > 0 else klines[_idx][1]
                 chg_ann = round((_c - _base) / _base * 100, 2) if _base else None
+        # 安全阀：默认不限制（ANNO_MAX_PER_STOCK=0），只在显式配置时截断
+        max_anns = announcement_limit()
+        if max_anns and len(anns_all) > max_anns:
+            anns = anns_all[-max_anns:]
+        else:
+            anns = anns_all
         data.append({
             "code": code, "name": s["name"], "category": s["category"],
             "board": s.get("board", ""), "is_st": s.get("is_st", False),

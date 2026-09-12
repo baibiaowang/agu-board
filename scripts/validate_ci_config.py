@@ -1,4 +1,5 @@
 """Static validation for the GitHub Actions contract used by agu-board."""
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -13,6 +14,24 @@ def require(path: Path, text: str, label: str) -> None:
     content = read(path)
     if text not in content:
         raise SystemExit(f"[FAIL] {path.relative_to(ROOT)} missing {label}: {text!r}")
+    print(f"[OK] {path.relative_to(ROOT)}: {label}")
+
+
+def require_import(path: Path, module: str, name: str, label: str) -> None:
+    """检查 path 从 module 导入了 name。
+
+    不能用 `require(path, "from universe import merge_archive", ...)` 做整串匹配：
+    一旦同模块多导入几个名字（如 `from universe import display_title, merge_archive,
+    norm_title`），整串匹配就会误报失败。这里解析导入名再比对。
+    """
+    pattern = re.compile(rf"^\s*from\s+{re.escape(module)}\s+import\s+(.+?)\s*$", re.M)
+    imported = set()
+    for m in pattern.finditer(read(path)):
+        imported.update(n.strip() for n in m.group(1).split(",") if n.strip())
+    if name not in imported:
+        raise SystemExit(
+            f"[FAIL] {path.relative_to(ROOT)} missing {label}: 'from {module} import {name}'"
+        )
     print(f"[OK] {path.relative_to(ROOT)}: {label}")
 
 
@@ -109,7 +128,7 @@ def main() -> None:
     # ---- 共享 build_universe：不允许再出现第二份实现 ----
     require(universe_mod, "def merge_archive", "shared archive merger")
     for path in (gen_dashboard, fetch_script, rule_script):
-        require(path, "from universe import merge_archive", "shared archive merger import")
+        require_import(path, "universe", "merge_archive", "shared archive merger import")
         if "def build_universe" in read(path) and "merge_archive(" not in read(path):
             raise SystemExit(f"[FAIL] {path.relative_to(ROOT)} re-implements build_universe")
 

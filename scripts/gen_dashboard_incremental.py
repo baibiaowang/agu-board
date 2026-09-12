@@ -30,6 +30,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -235,11 +236,84 @@ def main() -> None:
                     con.commit()
             return value
 
+        def cached_load_universe(days: int = 90):
+            """股票池 = 归档 ∪ 库（库侧用 classify() 还原看板口径）。
+
+            实测（90 天窗口）：归档 4,213 只、库过 classify 4,103 只、并集 4,386 只
+            ——单用任一侧都会丢股票，所以取并集。
+
+            不能用库里的 category 列当分类：那一列 79.5% 是 'other'（VPS 那套英文
+            分类体系写入的），而看板前端认的是 classify() 的中文分类。因此库侧一律
+            用 classify(title) 现算、只保留命中的公告——这正好等价于 eastmoney_fetch
+            写 filtered_*.json 时的过滤条件，口径与归档保持一致。
+
+            两侧标题写法不同（库内带「简称:」前缀、标点可能是半角），去重键统一走
+            universe.norm_title，展示标题走 universe.display_title。
+            """
+            from eastmoney_fetch import classify
+            from universe import cutoff_date, display_title, norm_title
+
+            cutoff = cutoff_date(days, dt.date.today().strftime("%Y-%m-%d"))
+            archive_items = gen_dashboard.load_historical_data(days)
+            with db_lock:
+                rows = con.execute(
+                    "SELECT code, name, title, date, board, url "
+                    "FROM announcements WHERE date >= ? ORDER BY date",
+                    (cutoff,),
+                ).fetchall()
+
+            # 先建 code -> 归档侧股票简称 的映射。
+            # 库里的 name 往往是更名后的新名，而标题里嵌的是旧名——例如 000972
+            # 库中 name='中基健康'，标题却是「*ST中基:关于…」。只拿库的 name 去比对
+            # 就剥不掉前缀，同一条公告会被算成两条（实测 114 条重复）。
+            name_by_code = {}
+            for x in archive_items:
+                c = x.get("code") if isinstance(x, dict) else None
+                if c and x.get("name") and c not in name_by_code:
+                    name_by_code[c] = x["name"]
+
+            seen, out, added = set(), [], 0
+            for x in archive_items:
+                if not isinstance(x, dict) or not x.get("code"):
+                    continue
+                name = x.get("name", "")
+                title = x.get("title", "")
+                k = (x["code"], str(x.get("time") or "")[:10], norm_title(title, name))
+                if k in seen:
+                    continue
+                seen.add(k)
+                # 统一剥掉与简称一致的前缀后再输出，避免两侧写法不一致
+                out.append({**x, "title": display_title(title, name)})
+            for code, name, title, date, board, url in rows:
+                title = title or ""
+                cats = classify(title)
+                if not cats:
+                    continue
+                # 归一化优先用归档侧简称（能匹配标题里的旧名），没有再用库的
+                _nm = name_by_code.get(code) or name
+                k = (code, date, norm_title(title, _nm))
+                if k in seen:
+                    continue
+                seen.add(k)
+                added += 1
+                out.append({
+                    "code": code, "name": name, "title": display_title(title, _nm),
+                    "time": date, "date": date, "cats": cats, "board": board, "url": url,
+                })
+            print(
+                f"[DB] 股票池：归档 {len(archive_items):,} 条 + 库补充 {added:,} 条 = {len(out):,} 条"
+                f"（库内 90 天原始 {len(rows):,} 条，未过 classify 的例行公告已剔除）"
+            )
+            return out
+
+        original_load_universe = gen_dashboard.load_universe
+        gen_dashboard.load_universe = cached_load_universe
         gen_dashboard.fetch_kline = cached_fetch_kline
         gen_dashboard.fetch_market_cap = cached_market_cap
         try:
             gen_dashboard.main()
         finally:
+            gen_dashboard.load_universe = original_load_universe
             gen_dashboard.fetch_kline = original_fetch_kline
             gen_dashboard.fetch_market_cap = original_fetch_market_cap
 

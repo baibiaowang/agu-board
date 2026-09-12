@@ -17,6 +17,44 @@ from pathlib import Path
 
 _DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
+# 「名称:」前缀识别。只在 prefixes 与股票简称一致时才剥离 —— 标题里形如
+# 「H股公告：…」「关于…的公告：…」的前缀并不是股票名，误剥会破坏标题语义。
+_NAME_PREFIX = re.compile(r"^([^:：\s]{2,12})[:：]")
+
+# 全/半角标点归一：同一公告在归档与库里可能用不同标点（「H股公告：」vs「H股公告:」），
+# 不归一就会被当成两条并排显示。
+_PUNCT_MAP = str.maketrans({"：": ":", "，": ",", "（": "(", "）": ")", "、": ","})
+
+
+def _strip_name_prefix(title: str, name: str) -> str:
+    """仅当「名称:」前缀与股票简称一致（互为子串）时剥离，否则原样返回。"""
+    t = str(title or "").strip()
+    m = _NAME_PREFIX.match(t)
+    if not m:
+        return t
+    prefix, nm = m.group(1), str(name or "").strip()
+    if nm and (prefix == nm or prefix in nm or nm in prefix):
+        return t[m.end():].strip()
+    return t
+
+
+def display_title(title, name="") -> str:
+    """展示用标题：剥掉与股票简称一致的「名称:」前缀，保留原有标点。"""
+    return _strip_name_prefix(title, name)
+
+
+def norm_title(title, name="") -> str:
+    """跨源去重键用的标题归一化（不可用于展示）。
+
+    库内标题由 VPS 流水线写入，形如「华昌化工:关于筹划…」；归档里的同一条既没有
+    前缀，标点也可能是全角。直接比对会把同一条公告算成两条，因此这里：
+      1. 剥离与股票简称一致的「名称:」前缀
+      2. 去掉空白、统一全/半角标点
+    """
+    t = _strip_name_prefix(title, name)
+    return re.sub(r"\s+", "", t).translate(_PUNCT_MAP)
+
+
 
 def key_of(row: dict) -> tuple:
     """公告去重键，与 eastmoney_fetch.key_of 保持一致。"""
