@@ -7,14 +7,33 @@ caches are also reused to avoid repeated requests for suspended or delayed
 symbols. When REQUIRE_SQLITE=1, absence of the historical seed is a fast,
 explicit failure rather than silently falling back to the old network-heavy
 generator.
+
+网络刷新预算
+------------
+"本期公告涉及的股票"会随抓取窗口放大：手动触发一次 1 个月档位、或指定日期区间，
+本期股票数可达上千只，而每只股票最坏要经历东财 3 次重试 + 腾讯 3 次重试
+（单次 socket 超时 12s，另有退避 sleep），于是这一步会稳定吃满 30 分钟
+并被 GitHub Actions 掐掉（历史报错：
+"The action 'Generate dashboard data (SQLite incremental)' has timed out after 30 minutes."）。
+
+因此这里引入两道硬闸，任一触发后剩余股票只读 SQLite 缓存（或返回空），
+不再发起任何网络请求：
+
+* ``KLINE_REFRESH_BUDGET_SECONDS`` —— 墙钟预算，默认 840s（14 分钟）。
+* ``KLINE_MAX_NETWORK`` / ``MARKET_CAP_MAX_NETWORK`` —— 网络请求条数上限，默认各 600。
+
+三个值设为 0 表示关闭对应的网络刷新。看板因此总能在 step 上限内产出，
+未刷新到的股票会在后续几轮增量里自然补齐（KLINE_REUSE_STALE_DAYS 内的缓存仍可复用）。
 """
 from __future__ import annotations
 
 import datetime as dt
 import json
 import os
+import re
 import sys
 import threading
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,6 +42,10 @@ if str(ROOT) not in sys.path:
 
 from board_db import connect, integrity_check, latest_kline_date, kline_payload, market_cap, persist_to_site, sync_announcement_json, seed_stats
 import gen_dashboard
+
+# 看板只渲染最近 60 个交易日（gen_dashboard 里也是按 60 根截断的），
+# 多取的 K 线只会放大 DB 读取、序列化和前端体积。
+MAX_KLINE_BARS = 60
 
 
 def last_trading_day() -> str:
@@ -100,7 +123,20 @@ def main() -> None:
         kline_reuse_days = _env_int("KLINE_REUSE_STALE_DAYS", 3)
         reuse_cutoff = _date_cutoff(kline_reuse_days)
         current_codes = _current_announcement_codes()
-        print(f"[DB] 本期公告涉及股票：{len(current_codes):,} 只；历史股票不再联网刷新K线")
+
+        budget_seconds = _env_int("KLINE_REFRESH_BUDGET_SECONDS", 840)
+        net_limit = {
+            "kline_network": _env_int("KLINE_MAX_NETWORK", 600),
+            "mv_network": _env_int("MARKET_CAP_MAX_NETWORK", 600),
+        }
+        deadline = time.monotonic() + budget_seconds
+        print(
+            f"[DB] 本期公告涉及股票：{len(current_codes):,} 只；历史股票不再联网刷新K线"
+        )
+        print(
+            f"[DB] 网络刷新预算：K线≤{net_limit['kline_network']} 只, 市值≤{net_limit['mv_network']} 只, "
+            f"总时长≤{budget_seconds}s；超出部分只读缓存"
+        )
         counters = {
             "kline_cache": 0,
             "kline_stale_reuse": 0,
@@ -108,23 +144,40 @@ def main() -> None:
             "kline_network": 0,
             "kline_network_new": 0,
             "kline_write": 0,
+            "kline_budget_skip": 0,
             "mv_cache": 0,
             "mv_network": 0,
+            "mv_budget_skip": 0,
         }
 
         def add_counter(name: str, value: int = 1) -> None:
             with counter_lock:
                 counters[name] += value
 
+        def allow_network(kind: str) -> bool:
+            """预算闸门：超时或超条数后永久关闭网络通道。"""
+            if time.monotonic() >= deadline:
+                return False
+            with counter_lock:
+                return counters[kind] < net_limit[kind]
+
+        # 写入按批提交：原实现每只股票 commit 一次，大回填时被提交开销拖垮。
+        write_batch = {"pending": 0}
+
         def persist_kline(code: str, payload: dict) -> int:
             from board_db import upsert_kline_payload
             with db_lock:
                 written = upsert_kline_payload(con, code, payload)
-                con.commit()
+                write_batch["pending"] += 1
+                if write_batch["pending"] >= 25:
+                    con.commit()
+                    write_batch["pending"] = 0
             return written
 
-        def cached_fetch_kline(code: str, lmt: int = 120):
+        def cached_fetch_kline(code: str, lmt: int = MAX_KLINE_BARS):
             code = str(code or "").strip()
+            # 调用方可能仍按旧的 120 根请求，统一收敛到看板真正需要的条数。
+            lmt = max(1, min(int(lmt or MAX_KLINE_BARS), MAX_KLINE_BARS))
             with db_lock:
                 latest = latest_kline_date(con, code)
                 if latest and latest >= target_day:
@@ -140,6 +193,12 @@ def main() -> None:
                     # 数据只比目标日旧几天：对停牌/数据源延迟的股票直接复用。
                     add_counter("kline_stale_reuse")
                     return kline_payload(con, code, lmt)
+                if not allow_network("kline_network"):
+                    # 预算耗尽：不再联网，用已有缓存兜底，保证整步能在 step 超时前跑完。
+                    add_counter("kline_budget_skip")
+                    if latest:
+                        return kline_payload(con, code, lmt)
+                    return {"data": {"klines": [], "name": code}}
                 add_counter("kline_network")
                 if not latest:
                     add_counter("kline_network_new")
@@ -153,13 +212,17 @@ def main() -> None:
             return payload
 
         def cached_market_cap(code: str):
+            code = str(code or "").strip()
             with db_lock:
                 value = market_cap(con, code)
                 if value > 0:
                     add_counter("mv_cache")
                     return value
                 # 只有本期公告涉及的股票才允许补市值；历史展示股票直接返回数据库已有值。
-                if str(code or "").strip() not in current_codes:
+                if code not in current_codes:
+                    return 0
+                if not allow_network("mv_network"):
+                    add_counter("mv_budget_skip")
                     return 0
                 add_counter("mv_network")
 
@@ -173,11 +236,84 @@ def main() -> None:
                     con.commit()
             return value
 
+        def cached_load_universe(days: int = 90):
+            """股票池 = 归档 ∪ 库（库侧用 classify() 还原看板口径）。
+
+            实测（90 天窗口）：归档 4,213 只、库过 classify 4,103 只、并集 4,386 只
+            ——单用任一侧都会丢股票，所以取并集。
+
+            不能用库里的 category 列当分类：那一列 79.5% 是 'other'（VPS 那套英文
+            分类体系写入的），而看板前端认的是 classify() 的中文分类。因此库侧一律
+            用 classify(title) 现算、只保留命中的公告——这正好等价于 eastmoney_fetch
+            写 filtered_*.json 时的过滤条件，口径与归档保持一致。
+
+            两侧标题写法不同（库内带「简称:」前缀、标点可能是半角），去重键统一走
+            universe.norm_title，展示标题走 universe.display_title。
+            """
+            from eastmoney_fetch import classify
+            from universe import cutoff_date, display_title, norm_title
+
+            cutoff = cutoff_date(days, dt.date.today().strftime("%Y-%m-%d"))
+            archive_items = gen_dashboard.load_historical_data(days)
+            with db_lock:
+                rows = con.execute(
+                    "SELECT code, name, title, date, board, url "
+                    "FROM announcements WHERE date >= ? ORDER BY date",
+                    (cutoff,),
+                ).fetchall()
+
+            # 先建 code -> 归档侧股票简称 的映射。
+            # 库里的 name 往往是更名后的新名，而标题里嵌的是旧名——例如 000972
+            # 库中 name='中基健康'，标题却是「*ST中基:关于…」。只拿库的 name 去比对
+            # 就剥不掉前缀，同一条公告会被算成两条（实测 114 条重复）。
+            name_by_code = {}
+            for x in archive_items:
+                c = x.get("code") if isinstance(x, dict) else None
+                if c and x.get("name") and c not in name_by_code:
+                    name_by_code[c] = x["name"]
+
+            seen, out, added = set(), [], 0
+            for x in archive_items:
+                if not isinstance(x, dict) or not x.get("code"):
+                    continue
+                name = x.get("name", "")
+                title = x.get("title", "")
+                k = (x["code"], str(x.get("time") or "")[:10], norm_title(title, name))
+                if k in seen:
+                    continue
+                seen.add(k)
+                # 统一剥掉与简称一致的前缀后再输出，避免两侧写法不一致
+                out.append({**x, "title": display_title(title, name)})
+            for code, name, title, date, board, url in rows:
+                title = title or ""
+                cats = classify(title)
+                if not cats:
+                    continue
+                # 归一化优先用归档侧简称（能匹配标题里的旧名），没有再用库的
+                _nm = name_by_code.get(code) or name
+                k = (code, date, norm_title(title, _nm))
+                if k in seen:
+                    continue
+                seen.add(k)
+                added += 1
+                out.append({
+                    "code": code, "name": name, "title": display_title(title, _nm),
+                    "time": date, "date": date, "cats": cats, "board": board, "url": url,
+                })
+            print(
+                f"[DB] 股票池：归档 {len(archive_items):,} 条 + 库补充 {added:,} 条 = {len(out):,} 条"
+                f"（库内 90 天原始 {len(rows):,} 条，未过 classify 的例行公告已剔除）"
+            )
+            return out
+
+        original_load_universe = gen_dashboard.load_universe
+        gen_dashboard.load_universe = cached_load_universe
         gen_dashboard.fetch_kline = cached_fetch_kline
         gen_dashboard.fetch_market_cap = cached_market_cap
         try:
             gen_dashboard.main()
         finally:
+            gen_dashboard.load_universe = original_load_universe
             gen_dashboard.fetch_kline = original_fetch_kline
             gen_dashboard.fetch_market_cap = original_fetch_market_cap
 
@@ -189,9 +325,17 @@ def main() -> None:
             f"近期缓存复用={counters['kline_stale_reuse']}, "
             f"历史缓存复用={counters['kline_historical_reuse']}, "
             f"网络更新={counters['kline_network']}（其中新股票={counters['kline_network_new']}）, "
+            f"预算内跳过={counters['kline_budget_skip']}, "
             f"K线写入={counters['kline_write']};"
-            f" 市值缓存命中={counters['mv_cache']}, 市值网络请求={counters['mv_network']}"
+            f" 市值缓存命中={counters['mv_cache']}, 市值网络请求={counters['mv_network']}, "
+            f"市值预算内跳过={counters['mv_budget_skip']}"
         )
+        if counters["kline_budget_skip"] or counters["mv_budget_skip"]:
+            print(
+                "[DB] 本轮触发了网络刷新预算：部分股票沿用缓存（或留空）。"
+                "如需一次刷新更多，请调大 KLINE_REFRESH_BUDGET_SECONDS / KLINE_MAX_NETWORK。",
+                flush=True,
+            )
         if gen_dashboard.is_github_actions():
             persist_to_site(con, ROOT / "_site" / "data_archive")
     finally:

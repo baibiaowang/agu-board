@@ -32,6 +32,16 @@ reports/dashboard/data_*.js
 reports/dashboard/dashboard.html
 market_cap_cache.json
 
+# 部署产物与 CI 中转产物（由 gh-pages 分支承载，不提交到 main）
+/_site/
+data_archive/data_*.js
+
+# 本地运行解压/生成的 SQLite 库（约 100MB）。
+# 纳入版本管理的是 data_seed/board.db.zst 与 data_archive/board.db.zst，不要忽略它们。
+/board.db
+/board.db-wal
+/board.db-shm
+
 # IDE
 .vscode/
 .idea/

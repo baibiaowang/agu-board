@@ -78,7 +78,7 @@ jobs:
             cp .ghpages_state/data_archive/cninfo_announce_state.json . 2>/dev/null || true
             cp .ghpages_state/data_archive/market_cap_cache.json . 2>/dev/null || true
             cp .ghpages_state/data_archive/data_list.js reports/dashboard/data_list.js 2>/dev/null || true
-            cp .ghpages_state/data_archive/data_kline.js reports/dashboard/data_kline.js 2>/dev/null || true
+            cp .ghpages_state/data_archive/data_kline*.js reports/dashboard/ 2>/dev/null || true
             cp .ghpages_state/data_archive/board.db.zst data_archive/board.db.zst 2>/dev/null || true
           fi
           if [ -d data_archive ] && [ -n "$(ls -A data_archive 2>/dev/null || true)" ]; then
@@ -239,7 +239,12 @@ jobs:
           [ -s _site/index.html ] || { [ -s _site/dashboard.html ] && cp _site/dashboard.html _site/index.html; }
           [ -s _site/index.html ] || { echo 'dashboard index missing' >&2; exit 1; }
           [ -s _site/data_list.js ] || echo 'window.ANNO_LIST = [];' > _site/data_list.js
-          [ -f _site/data_kline.js ] || echo 'window.ANNO_KLINE = {};' > _site/data_kline.js
+          rm -f _site/data_kline.js
+          SHARDS=$(python -c "import re,pathlib;p=pathlib.Path('_site/data_kline_manifest.js');t=p.read_text(encoding='utf-8') if p.exists() else '';m=re.search(r'\"shards\"\s*:\s*(\d+)',t);print(m.group(1) if m else 16)")
+          for i in $(seq 0 $((SHARDS-1))); do
+            [ -f "_site/data_kline_${i}.js" ] || echo "window.ANNO_KLINE_SHARD_${i} = {};" > "_site/data_kline_${i}.js"
+          done
+          [ -s _site/data_kline_manifest.js ] || echo 'window.ANNO_KLINE_SHARDS = {"shards": 1, "codes": 0, "bars": 0};' > _site/data_kline_manifest.js
           if [ -s reports/dashboard/lib/echarts.min.js ]; then
             cp reports/dashboard/lib/echarts.min.js _site/lib/echarts.min.js
           elif [ ! -s _site/lib/echarts.min.js ]; then
@@ -250,7 +255,8 @@ jobs:
           cp cninfo_announce_state.json _site/data_archive/ 2>/dev/null || true
           cp market_cap_cache.json _site/data_archive/ 2>/dev/null || true
           cp _site/data_list.js _site/data_archive/data_list.js
-          cp _site/data_kline.js _site/data_archive/data_kline.js
+          cp _site/data_kline*.js _site/data_archive/
+          rm -f _site/data_archive/data_kline.js
           if [ -s board.db ]; then
             echo '[DB] board.db present for persistence'
             zstd -1 -q -f board.db -o _site/data_archive/board.db.zst
@@ -278,10 +284,12 @@ jobs:
           set -u
           test -s _site/index.html
           test -s _site/data_list.js
-          test -s _site/data_kline.js
+          test -s _site/data_kline_manifest.js
+          test -s _site/data_kline_0.js
           test -s _site/lib/echarts.min.js
           grep -q 'window.ANNO_LIST' _site/data_list.js
-          grep -q 'window.ANNO_KLINE' _site/data_kline.js
+          grep -q 'window.ANNO_KLINE_SHARDS' _site/data_kline_manifest.js
+          grep -q 'window.ANNO_KLINE_SHARD_0' _site/data_kline_0.js
           test -s _site/data_archive/board.db.zst
           echo 'PRE-DEPLOY DB HEALTH: OK'
           echo 'PRE-DEPLOY HEALTH: OK'
